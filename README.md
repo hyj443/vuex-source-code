@@ -1,5 +1,18 @@
 # 深入浅出Vuex源码
 
+## 回顾一下Vuex是什么
+
+Vuex 是一个专为Vue框架设计的，进行状态管理的库，将共享的数据抽离，放到全局形成一个单一的store，同时利用了Vue内部的响应式机制来进行状态的管理和更新，它是与Vue设计高度契合的库。
+
+下图是Vue的单向数据流的特点图：
+![单向数据流](https://vuex.vuejs.org/flow.png)
+
+Vuex，在全局有一个state存放数据，，所有修改state的操作必须通过mutation进行，mutation的同时，提供了订阅者模式供外部插件调用获取state数据的更新。
+所有异步操作都走action，比如调用后端接口异步获取数据，但在action中不能直接修改state，还是要通过若干个mutation来修改state，所以Vuex中数据流是单向的。
+state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需要new一个Vue对象来实现响应式化
+
+![vuex组成](https://vuex.vuejs.org/vuex.png)
+
 ## Vuex中的store如何注入到组件中
 
 在使用Vuex前，先安装Vuex
