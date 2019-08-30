@@ -16,38 +16,57 @@ state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需�
 ## Vuex中的store如何注入到组件中
 
 在使用Vuex前，先安装Vuex
+
 ```js
 import Vuex from 'vuex';
 Vue.use(vuex);
-```
-在new Vue() 之前调用全局方法 Vue.use(Vuex)，实际会调用Vuex.install(Vue)
-我们来看看Vue.use()在Vue中的实现:
-```js
-  initUse(Vue);
-  function initUse (Vue) {
-    Vue.use = function (plugin) {
-      var installedPlugins = (this._installedPlugins || (this._installedPlugins = []));
-      if (installedPlugins.indexOf(plugin) > -1) { // 注册过此插件
-        return this // this指向Vue，因为Vue.use(plugin)
-      }
-      var args = toArray(arguments, 1); // 类数组转成数组，1代表从索引1开始，也就是use可以传别的
-      args.unshift(this);
-      if (typeof plugin.install === 'function') { // 如果plugin是对象且有install这个方法
-        plugin.install.apply(plugin, args); // 调用install方法，把args参数传入，args第一个是Vue
-      } else if (typeof plugin === 'function') {
-        plugin.apply(null, args);
-      }
-      installedPlugins.push(plugin); // 注册过的plugin推入数组
-      return this
-    };
-  }
 
 ```
-所以我们得知，Vue.use(plugin)的时候，会调用插件的install方法，并传入Vue
-我们来看看Vuex中的install的实现，src\store.js文件中
+`import Vuex from 'vuex'`时，引用的是一个对象，定义在src\index.js中
+
 ```js
+export default {
+  Store,
+  install,
+  version: '__VERSION__',
+  mapState,
+  mapMutations,
+  mapGetters,
+  mapActions,
+  createNamespacedHelpers
+}
+```
+
+要安装Vuex，必须在 `new Vue()` 之前调用全局方法 `Vue.use(Vuex)` ，实际会调用 `Vuex.install(Vue)`
+不妨看看 Vue 源码的 `Vue.use` 部分，是如何调用 `Vuex.install(Vue)`
+
+```js
+initUse(Vue);
+function initUse (Vue) {
+  Vue.use = function (plugin) {
+    var installedPlugins = (this._installedPlugins || (this._installedPlugins = []));
+    if (installedPlugins.indexOf(plugin) > -1) { // 注册过此插件
+      return this // this指向Vue，因为Vue.use(plugin)
+    }
+    var args = toArray(arguments, 1); // 从索引1开始，类数组转成数组，也就是use可以传别的
+    args.unshift(this);
+    if (typeof plugin.install === 'function') { // 如果plugin是对象且有install这个方法
+      plugin.install.apply(plugin, args); // 调用install方法，把args参数传入，args第一个是Vue
+    } else if (typeof plugin === 'function') {
+      plugin.apply(null, args);
+    }
+    installedPlugins.push(plugin); // 注册过的plugin推入数组
+    return this
+  };
+}
+```
+所以可知，`Vue.use(plugin)` 时，会调用插件的`install`方法，并至少传入`Vue`
+我们来看看`Vuex`中的`install`的实现，src\store.js文件中
+```js
+let Vue
+// ....
 export function install(_Vue) {
-  if (Vue && _Vue === Vue) { // 避免重复安装，Vue.use内部也会检测一次是否重复安装
+  if (Vue && _Vue === Vue) { // 避免重复安装，Vue.use内部也会检测一次
     if (process.env.NODE_ENV !== 'production') {
       console.error(
         '[vuex] already installed. Vue.use(Vuex) should be called only once.'
@@ -56,22 +75,46 @@ export function install(_Vue) {
     return
   }
   Vue = _Vue // 保存传入的Vue
-  applyMixin(Vue) // 在Vue的生命周期中初始化
+  applyMixin(Vue)
 }
 ```
-所以install代码做了两件事：1.防止Vuex被重复安装，2.执行applyMixin，在Vue的生命周期中初始化Vuex
-现在我们来看看applyMixin是怎么实现的，src\mixin.js中：
+所以install代码做了两件事：
+
+1. 防止Vuex被重复安装
+
+2. 执行applyMixin，在Vue的生命周期中初始化Vuex
+
+Vue 通过 store 选项，提供了一种机制将状态从根组件“注入”到每一个子组件中
+通过在根Vue实例中注册store选项，可以把 store 的实例注入到所有的子组件，且在子组件中能通过this.$store访问到
+```js
+const store = new Vuex.Store({
+  state: {/**/},
+  mutations: {/**/}
+})
+const app = new Vue({
+  el: '#app',
+  // 把 store 对象提供给 “store” 选项，这可以把 store 的实例注入所有的子组件
+  store
+})
+```
+具体实现是在applyMixin中：
+
 ```js
 export default function (Vue) {
   const version = Number(Vue.version.split('.')[0])
   if (version >= 2) {
-    Vue.mixin({ beforeCreate: vuexInit }) // beforeCreate在实例初始化之后，数据观测和事件配置之前调用
+    Vue.mixin({ beforeCreate: vuexInit })
+    // beforeCreate 的调用是在实例初始化之后，数据观测和事件配置之前
+    // Vue.mixin全局注册一个混入，影响注册之后所有创建的每个 Vue 实例。
   } else {/**/}
-  // Vuex初始化钩子，会注入到每个实例的钩子列表
+
+  // 把 options.store 保存在所有组件的 this.$store 中
+  // options.store 就是在根组件写的store实例
+
   function vuexInit () {
     const options = this.$options
-    // 给vue实例注入一个$store属性，这就是为什么能在组件中this.$store访问到Vuex的各种状态
-    if (options.store) { // 如果存在store，就代表当前组件是根组件(Root节点)
+
+    if (options.store) { // 如果存在store，就代表当前组件是根组件
       this.$store = typeof options.store === 'function'
         ? options.store()
         : options.store
@@ -83,46 +126,20 @@ export default function (Vue) {
 }
 
 ```
-所有Vue组件都可以通过this.$store访问全局的Store实例
+这样所有Vue组件都可以通过this.$store访问全局的Store实例
 
 ## 探究 Store 类
-我们使用Vuex时，通常会实例化Store，提过一个初始state对象和一些mutation
+我们使用Vuex时，通常会实例化Store，传入初始state对象mutations等，返回出store实例，并传入new Vue的options中，也就是刚才提到的 options.store
 ```js
 const store=new Vuex.Store({
-  state: {
-    count: 0
-  },
-  mutations: {
-    add (state) {
-      state.count++
-    }
-  }
-  // getters..actions...
+  state,
+  mutations,
+  actions,
+  getters,
+  modules
 })
 ```
-Vuex还允许我们将store切分为module，每个module有自己的state mutation...甚至嵌套子module
-```js
-const moduleA = {
-  state: { ... },
-  mutations: { ... },
-  actions: { ... },
-  getters: { ... }
-}
-const moduleB = {
-  state: { ... },
-  mutations: { ... },
-  actions: { ... }
-}
-const store = new Vuex.Store({
-  modules: {
-    a: moduleA,
-    b: moduleB
-  }
-})
-store.state.a // -> moduleA 的状态
-store.state.b // -> moduleB 的状态
-```
-所以使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`我们看看Store的实现，先看constructor方法
+可见Store的构造函数接收一个对象，包含actions 、 getters 、 state 、 mutations 、 modules等，我们先看看Store的constructor方法，在src\store.js中
 ```js
 let Vue
 constructor(options = {}) {
@@ -193,7 +210,48 @@ constructor(options = {}) {
 }
 
 ```
-Store函数除了初始化一些内部变量之外，主要执行了installModule，和resetStoreVM，分别初始化module和通过vm使store响应式
+Store函数主要做了三件事：
+
+1. 初始化一些内部变量，特别是初始化module
+2. 执行installModule，安装了模块
+3. 执行了resetStoreVM，初始化 store.vm，通过vm使store响应式
+
+为什么要划分模块？
+由于Vuex使用单一状态树，所有的状态会集中到一个比较大的对象，当应用变得很复杂的时候，store对象就有可能变得相当臃肿
+因此 Vuex 允许我们将store切分为module，每个module有自己的state mutation...甚至嵌套子module
+```js
+const moduleA = {
+  state: { ... },
+  mutations: { ... },
+  actions: { ... },
+  getters: { ... }
+}
+const moduleB = {
+  state: { ... },
+  mutations: { ... },
+  actions: { ... }
+}
+const store = new Vuex.Store({
+  modules: {
+    a: moduleA,
+    b: moduleB
+  }
+})
+store.state.a // -> moduleA 的状态
+store.state.b // -> moduleB 的状态
+```
+
+从数据结构来看，模块的设计就是一个树形结构，store本身可以理解为一个root module，下面的module是子模块
+Vuex构建这个树的入口就是
+```js
+this._modules = new ModuleCollection(options) // module收集器
+
+```
+我们看看ModuleCollection这个构造函数，在src\module\module-collection.js中
+```js
+
+```
+所以使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`
 但你在跟模块注册的mutation和在子模块注册的mutation，如果同名的话，调用store.commit('xxx')，将会调用根模块和子模块的该mutation，除非区分命名
 vuex2后的版本添加了命名空间的功能，使得module更加模块化，只有state是被模块化了，action mutation getter都还是在全局的模块下
 ### installModule
