@@ -1,30 +1,27 @@
-# 深入浅出Vuex源码
+# 可以一口气读完的Vuex源码解析
 
 ## 回顾一下Vuex是什么
 
-Vuex 是一个专为Vue框架设计的，进行状态管理的库，将共享的数据抽离，放到全局形成一个单一的store，同时利用了Vue内部的响应式机制来进行状态的管理和更新，它是与Vue设计高度契合的库。
-
-下图是Vue的单向数据流的特点图：
-![单向数据流](https://vuex.vuejs.org/flow.png)
-
-Vuex，在全局有一个state存放数据，，所有修改state的操作必须通过mutation进行，mutation的同时，提供了订阅者模式供外部插件调用获取state数据的更新。
-所有异步操作都走action，比如调用后端接口异步获取数据，但在action中不能直接修改state，还是要通过若干个mutation来修改state，所以Vuex中数据流是单向的。
-state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需要new一个Vue对象来实现响应式化
-
+Vuex 是一个专为Vue框架设计的，进行状态管理的库，将共享的数据抽离，放到全局形成一个单一的store，同时利用了Vue内部的响应式机制来进行状态的管理和更新。
 ![vuex组成](https://vuex.vuejs.org/vuex.png)
+Vuex，在全局有一个state存放数据，所有修改state的操作必须通过mutation进行，mutation的同时，提供了订阅者模式供外部插件调用，获取state数据的更新。
+所有异步操作都走action，比如调用后端接口异步获取数据，action同样不能直接修改state，要通过若干个mutation来修改state，所以Vuex中数据流是单向的。
+state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需要new一个Vue对象来实现响应式化。
 
-## Vuex中的store如何注入到组件中
+看源码之前再看一遍[Vuex文档](https://vuex.vuejs.org/zh/)会加深理解，建议抽空过一遍。
 
-Vuex作为Vue的插件，在使用Vuex前，要先安装Vuex，必须在 `new Vue()` 之前调用全局方法 `Vue.use(Vuex)`
+## Vuex的安装
 
 ```js
+import Vue from 'vue';
 import Vuex from 'vuex';
 Vue.use(vuex);
 ```
 
-`import Vuex from 'vuex'`时，拿到的是下面这个定义在入口文件中的对象
+入口文件src\index.js，Vuex 导出的一个对象。
 
 ```js
+// 入口文件
 export default {
   Store,
   install,
@@ -37,39 +34,42 @@ export default {
 }
 ```
 
-从 Vue 源码可知，调用全局方法 `Vue.use(Vuex)` ，会调用 `Vuex.install(Vue)`，所以你看到这里对外暴露的API中有install方法。
+作为 Vue 的插件，Vuex 导出了一个对象，对外暴露了 install 方法。Vuex 在使用前，要先安装。必须在 `new Vue()` 之前调用 `Vue.use(Vuex)`
 
-不妨看看 Vue 源码的 `Vue.use` 部分，是如何实现的：
+这是 Vue 的官方文档告诉我们的，我们不妨看看 Vue 源码中 `Vue.use` 如何调用了插件的 install。
 
 ```js
 initUse(Vue);
-function initUse (Vue) { // this指向Vue，因为Vue.use(plugin)
+function initUse (Vue) {
   Vue.use = function (plugin) {
     var installedPlugins = (this._installedPlugins || (this._installedPlugins = []));
-    if (installedPlugins.indexOf(plugin) > -1) { // 注册过此插件
+    if (installedPlugins.indexOf(plugin) > -1) { // 注册过此插件，直接返回 Vue 本身
       return this
     }
     var args = toArray(arguments, 1); // 从索引1开始，参数类数组转成数组
     args.unshift(this);
     if (typeof plugin.install === 'function') { // 如果plugin是对象且有install方法
-      plugin.install.apply(plugin, args); // 调用install，把Vue对象作为第一个参数传入
+      plugin.install.apply(plugin, args); // 调用install，把 Vue 作为第一个参数传入
     } else if (typeof plugin === 'function') {
       plugin.apply(null, args);
     }
-    installedPlugins.push(plugin); // 注册过的plugin推入数组
+    installedPlugins.push(plugin); // 注册过的 plugin 推入数组
     return this
   };
 }
 ```
-所以可知，`Vue.use(plugin)` 时，会调用插件的`install`方法，并至少传入`Vue`
-接下来看`Vuex`中的`install`做了什么
+
+所以，Vue.use(Vuex) 会调用 Vuex 的 install 方法，并把 Vue 作为第一个参数传入 install。
+
+现在我们知道为什么 Vuex 要提供一个 install 方法，接下来我们看 `install` 方法做了什么。
+
 ```js
 let Vue
 // ....
 export function install(_Vue) {
-  if (Vue && _Vue === Vue) {
+  if (Vue && _Vue === Vue) { // 避免重复安装 Vuex
     if (process.env.NODE_ENV !== 'production') {
-      console.error( // 报错，已经使用 Vue.use(Vuex) 安装过了
+      console.error(
         '[vuex] already installed. Vue.use(Vuex) should be called only once.'
       )
     }
@@ -82,42 +82,64 @@ export function install(_Vue) {
 
 所以install代码做了两件事：
 
-1. 防止Vuex被重复安装
+1. 避免Vuex重复安装: 如果 Vue 已经存在并且全等于传入的 Vue ，直接返回
+2. 调用applyMixin(Vue)
 
-2. 执行applyMixin，并传入Vue对象
-
-那，applyMixin做了什么呢？我们看看源码中的具体实现：
+所以，applyMixin 方法承担了安装的事，我们继续看 applyMixin 的实现：
 
 ```js
+// applyMixin
 export default function (Vue) {
   const version = Number(Vue.version.split('.')[0])
   if (version >= 2) {
     Vue.mixin({ beforeCreate: vuexInit })
-    // Vue.mixin全局注册一个混入，影响注册之后创建的每个Vue实例。
-  } else {/**/}
+    // Vue.mixin：全局注册一个混入，影响注册之后创建的每个Vue实例。
+  } else {
+    // Vue 1.x 的处理，不做分析
+  }
 
   function vuexInit () {
-    const options = this.$options
-    // options.store 就是new Vue 时传入的store，也就是根组件中注册的store
-    if (options.store) { // 如果存在，代表当前组件是根组件
-      this.$store = typeof options.store === 'function'
-        ? options.store()
-        : options.store
-    } else if (options.parent && options.parent.$store) {
-      // 如果this.$options没有store(意味着是子组件)，就取父组件的$store
-      this.$store = options.parent.$store
-    }
+    // 先省略
   }
 }
 ```
 
-applyMixin方法，全局注册混入一个beforeCreate钩子vuexInit，之后创建的每个 Vue 实例的生命周期中都会执行。
+可知，applyMixin 在全局注册混入一个 beforeCreate 钩子 vuexInit，之后创建的每个 Vue 实例的生命周期中都会调用它。
 
-vuexInit中干的事：将 `new Vue()` 时传入的 `store` 保存到 `this.$store`，子组件则取其父组件实例上的 `$store`，层层下去，每一个组件中都可以通过 `this.$store` 取到 `store` 对象。
+我们在使用 Vuex 时，需要将 store 作为配置项注入到 new VUe 中
 
-这种注入机制：通过在根实例中注册 store 选项，store 实例会注入到根组件下的所有子组件中，注入方法是子组件从父组件拿。
+```js
+new Vue({
+  store,
+  router,
+  render: h => h(App)
+}).$mount('#app')
+```
 
-介绍完Vuex.install，既然我们`new Vue`时会注入store选项，要通过 `new Vuex.Store()` 来实例化store，Store构造函数接收一个对象，包含actions 、 getters 、 state 、 mutations 、 modules等。
+注册了之后创建的每一个 Vue 实例中都可以访问到这个 store，vuexInit 做了什么？
+
+```js
+function vuexInit () {
+  const options = this.$options
+  // options.store 就是我们 new Vue 时传入的对象里的 store
+  if (options.store) { // 如果存在，代表当前组件是根组件
+    this.$store = typeof options.store === 'function'
+      ? options.store()
+      : options.store
+  } else if (options.parent && options.parent.$store) {
+    // this.$options没有store(意味着是子组件)，就取父组件的$store
+    this.$store = options.parent.$store
+  }
+}
+```
+
+vuexInit 就是将 `new Vue()` 时传入的 `store` 对象保存到根实例的 `$store`，然后赋给下面子组件实例的 `$store`，一层层下去，每一个组件实例都挂载了 `$store` ， `this.$store` 都取到同一个 `store` 对象。
+
+这种注入机制：在根实例中注册 store 选项，store 实例会注入到根组件下的所有子组件，注入方法是子组件从父组件拿。
+
+## 怎么理解 store 对象
+
+介绍完 Vuex 的安装，我们知道了 store 对象的注入机制，那么，store 对象是怎么来的，是通过 `new Vuex.Store()` 出来的，Store 构造函数接收一个对象，包含actions、getters、state、mutations、modules等。
 
 ```js
 const store = new Vuex.Store({
@@ -129,31 +151,36 @@ const store = new Vuex.Store({
 })
 ```
 
-我们来看看 Store 这个构造函数
-
 ## 探究 Store 类
 
-我们先看看 `Store` 类的 `constructor` 方法
-
-constructor 中做了很多事情。
-
-首先浏览器环境下看是否调用过Vue.use(Vuex)，如果没有，自动安装；是否支持promise；必须用 new 创建 store
+我们来看看 Store 这个 class ，先看看 `constructor`，由于代码比较长，我们拆分成几段来看：
 
 ```js
-if (!Vue && typeof window !== 'undefined' && window.Vue) {
-  install(window.Vue) // 浏览器环境下如果没有安装过就自动install
-}
-if (process.env.NODE_ENV !== 'production') {
-  assert(Vue, `must call Vue.use(Vuex) before creating a store instance.`)
-  // 确保Vue存在
-  assert(typeof Promise !== 'undefined', `vuex requires a Promise polyfill in this browser.`)
-  // 确保Promise可用，Vuex源码依赖promise
-  assert(this instanceof Store, `store must be called with the new operator.`)
-  // Store类必须用new调用
+export class Store {
+  constructor(options = {}) {
+    if (!Vue && typeof window !== 'undefined' && window.Vue) {
+      install(window.Vue)
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      assert(Vue, `must call Vue.use(Vuex) before creating a store instance.`)
+      assert(typeof Promise !== 'undefined', `vuex requires a Promise polyfill in this browser.`)
+      assert(this instanceof Store, `store must be called with the new operator.`)
+    }
+    // 省略……
+  }
+  // 省略……
 }
 ```
 
-然后进行一系列的初始化，初始化一些内部属性。其中重点是`new ModuleCollection(options)`，初始化module
+首先，判断是否调用过 Vue.use(Vuex) ，没有的话，且是在浏览器环境下，并且window上有 Vue ，就执行刚才我们看的 install 方法，自动安装。
+
+然后是三个 assert函数：（附注：assert:state it firmly.断言）
+
+1. 确保Vue对象存在。在实例化 store 之前必须调用 Vue.use(Vuex)；
+2. 确保Promise能用，Vuex 依赖 promise ，后面会讲到；
+3. this 必须是 Store 的实例（Store 的调用必须用 new 字符）
+
+接着进行一系列初始化，初始化一些内部属性。
 
 ```js
   const { plugins = [], strict = false} = options // 解构赋值
@@ -163,19 +190,64 @@ if (process.env.NODE_ENV !== 'production') {
   this._actionSubscribers = [] // action 订阅函数集合
   this._mutations = Object.create(null) // 存放mutations
   this._wrappedGetters = Object.create(null) // 存放getters
-  this._modules = new ModuleCollection(options) // module收集器，options就是new Vuex.Store({options})的
-  this._modulesNamespaceMap = Object.create(null) // 根据namespace存放module，模块命名空间
+  this._modules = new ModuleCollection(options) // module收集器，options就是new Vuex.Store()传入的
+  this._modulesNamespaceMap = Object.create(null) // 模块命名空间
   this._subscribers = [] // 存储所有对mutation变化的订阅者
-  this._watcherVM = new Vue() // vue实例，用它的$watch来观测变化
-
-// Vuex支持store分模块传入，在内部用Module构造函数将传入的options构造成一个Module对象，
-// 如果没有命名模块，默认绑定在this._modules.root上
-// ModuleCollection 内部调用 new Module构造函数
+  this._watcherVM = new Vue() // Vue实例，用它的$watch来观测变化
 ```
 
-插一句，这里创建空对象用的是 Object.create(null)，这是因为直接用字面量创建{}，等价于Object.create(Object.prototype)，它会从Object原型上继承一些方法，如hasOwnProperty、isPrototypeOf。Object.create(null)的原型是null
+plugins 是我们在实例化Store传入的配置项之一，是Vuex的插件，数组
+strict 是否是严格模式，后面会提到严格模式的话会执行 enableStrictMode 方法，确保只能通过 mutation 修改 state
 
-Store 使用的是单一的状态树，所有状态会集中到一个比较大的对象。当应用变得非常复杂时，store 对象可能很臃肿。为了解决这个，Vuex 允许我们将 store 分割成模块（module）。每个模块有自己的state、mutation、action、getter、甚至是嵌套子模块。从上至下进行同样方式的分割：
+插一句，这里创建空对象用的是 Object.create(null)，原型为null，如果直接用字面量创建{}，等价于Object.create(Object.prototype)，它会从Object原型上继承一些方法，如hasOwnProperty、isPrototypeOf。
+
+属性初始化的重点是初始化 module： `new ModuleCollection(options)`，稍后会详细介绍。接下来继续看完 Store 的 constructor ：
+
+```js
+  const store = this // store 取到当前 Store 实例
+  const { dispatch, commit } = this // dispatch、commit 取到 Store 原型上的同名方法
+  this.dispatch = function boundDispatch(type, payload) { // 分别挂载到 store 实例
+    return dispatch.call(store, type, payload) // 并把执行时的 this 指向 store
+  }
+  this.commit = function boundCommit(type, payload, options) {
+    return commit.call(store, type, payload, options)
+  }
+```
+
+从 this（store实例）解构出 Store 的原型上的 dispatch 、commit 方法，通过  call 调用，将执行时的 this 指向当前 store 实例，dispatch、commit 方法挂载到 store 实例上。
+
+接着看 constructor
+
+```js
+  this.strict = strict // options中传入的，是否启用严格模式
+  
+  const state = this._modules.root.state // this._modules = new ModuleCollection(config)
+
+  installModule(this, state, [], this._modules.root)
+
+  resetStoreVM(this, state)
+
+  plugins.forEach(plugin => plugin(this)) // 注册 Vuex 插件
+
+  const useDevtools = options.devtools !== undefined ? options.devtools : Vue.config.devtools
+  if (useDevtools) {
+    devtoolPlugin(this)
+  }
+```
+
+这里已经是 Vuex 初始化的核心了，包括了：严格模式的设置、根state的赋值、模块的注册、state的响应式化、插件的注册。我们会逐个来看。
+
+到现在，constructor 的代码已过了一遍。Store 函数主要做了三件事：
+
+1. 初始化一些内部变量，重点是 初始化 module
+2. 执行 installModule ，安装了模块
+3. 执行了 resetStoreVM ，使 store 响应式化
+
+我们逐个细说这三件事。
+
+### Module 收集
+
+我们知道 store 使用单一的状态树，所有状态会集中在一个较大的对象，如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将store 切割成 module，每个模块都有自己的 state 、mutation、action、getter、甚至子模块，像这样从上至下进行同样方式的分割：
 
 ```js
 const moduleA = {
@@ -199,128 +271,175 @@ store.state.a // -> moduleA 的状态
 store.state.b // -> moduleB 的状态
 ```
 
-从数据结构来看，模块的设计就是一个树形结构，store本身可以理解为一个root module，下面的module是子模块
+从数据结构来看，module 的设计就是一个树形结构，store本身可以理解为一个root module，下面是一些子 module
 构建这种树形结构的入口是：
 
-```js
-this._modules = new ModuleCollection(options)
-```
+`this._modules = new ModuleCollection(options)`
 
-我们看看`ModuleCollection`这个构造函数，在`src\module\module-collection.js`中
+ModuleCollection 接收 new Vuex.Store(options) 的 options，`ModuleCollection` 做了什么？
 
 ```js
 export default class ModuleCollection {
   constructor (rawRootModule) {
-    // register root module (Vuex.Store options)
-    this.register([], rawRootModule, false)
+    this.register([], rawRootModule, false) // 注册根模块
   }
-
-  get (path) {
-    return path.reduce((module, key) => {
-      return module.getChild(key)
-    }, this.root)
-  }
-
-  getNamespace (path) {
-    let module = this.root
-    return path.reduce((namespace, key) => {
-      module = module.getChild(key)
-      return namespace + (module.namespaced ? key + '/' : '')
-    }, '')
-  }
-
-  update (rawRootModule) {
-    update([], this.root, rawRootModule)
-  }
-
+  get (path) {...}
+  getNamespace (path) {...}
+  update (rawRootModule) {...}
   register (path, rawModule, runtime = true) {
-    if (process.env.NODE_ENV !== 'production') {
-      assertRawModule(path, rawModule)
-    }
+    // 省略，后面会展开讲
+  }
+  unregister (path) {...}
+}
+```
 
-    const newModule = new Module(rawModule, runtime)
-    if (path.length === 0) {
-      this.root = newModule
-    } else {
-      const parent = this.get(path.slice(0, -1))
-      parent.addChild(path[path.length - 1], newModule)
-    }
+我们发现，ModuleCollection 的实例化，其实就是执行 register 。
 
-    // register nested modules
-    if (rawModule.modules) {
-      forEachValue(rawModule.modules, (rawChildModule, key) => {
-        this.register(path.concat(key), rawChildModule, runtime)
-      })
-    }
+这个方法接收 3 个参数，第一个 path 是module的路径，这个值是我们拆分module时，module的key组成的数组，比如前面的例子中，moduleA 的 path 是 ['a'] ， moduleB 的 path 是 ['b'] ，如果他们还有子模块，则子模块的 path 就大致形如 ['a','a1'] 、['a','a2'] 、['b','b1'] 。
+
+第二个参数 rawModule，是定义当前 module 的配置，像 rawRootModule 就是实例化 Store 时传入的 options。
+
+第三个参数 runtime 表示是否是一个运行时创建的module，默认为 true。
+
+实例化 ModuleCollection 上来就执行 register 传入空数组、实例化Store时传入的options、false，其实就是注册根 module，来看 register 干了什么：
+
+```js
+// ModuleCollection 的原型方法 register
+register (path, rawModule, runtime = true) {
+  if (process.env.NODE_ENV !== 'production') {
+    assertRawModule(path, rawModule)
   }
 
-  unregister (path) {
-    const parent = this.get(path.slice(0, -1))
-    const key = path[path.length - 1]
-    if (!parent.getChild(key).runtime) return
+  const newModule = new Module(rawModule, runtime)
 
-    parent.removeChild(key)
+  if (path.length === 0) { // 如果path是空数组，说明是 根 模块
+    this.root = newModule
+  } else {
+    const parent = this.get(path.slice(0, -1))
+    parent.addChild(path[path.length - 1], newModule)
+  }
+
+  // register 嵌套的子模块
+  if (rawModule.modules) {
+    forEachValue(rawModule.modules, (rawChildModule, key) => {
+      this.register(path.concat(key), rawChildModule, runtime)
+    })
   }
 }
 ```
 
-实例化ModuleCollection其实就是执行 register 方法，这个方法接收 3 个参数，其中 path 是module的路径，这个值是我们拆分module时，module的key组成的数组，比如前面的例子，moduleA的path是['a']，moduleB的path是['b']，如果他们还有子模块，则子模块的path就大致形如['a','a1']、['b','b1']，第二个参数rawModule是定义module的配置，像rawRootModule就是传入实例化Store传入的config，注册根module。第三个参数runtime表示是否是一个运行时创建的module，
+在 register 中，先调用 assertRawModule 对 module 作一些判断，遍历 module 内部的 getters、mutations、actions 是否符合要求，这里不作具体分析。
 
-实例化ModuleCollection其实就是执行register方法，这个方法接受3个参数，其中path参数就是module的路径，这个值是我们拆分module时候module的key组成的一个数组，以上面为例的话，moduleA和moduleB的path分别为["a"]和["b"]，如果他们还有子module则子module的path的形式大致如["a"，"a1"]/["b"，"b1"]，第二个参数其实是定义module的配置，像rawRootModule就是我们构建一个Store的时候传入的那个对象，第三个参数runtime表示是否是一个运行时创建的module，紧接着在register方法内部通过assertRawModule方法遍历module内部的getters、mutations、actions是否符合要求，紧接着通过const newModule = new Module(rawModule, runtime)构建一个module对象，看一眼module类的实现：
+然后通过 new Module 新建一个 module 对象 。如果 path 为 []，就说明是当前注册的是 root module，我们把 newModule 保存到 this.root，然后判断 rawModule.modules 是否存在，也就是，当前模块是否有嵌套的子模块。对当前是根模块的情况来说，就是看看 Store 实例化时的 options 里有没有传 modules，有就遍历 modules 里的每个键值对，逐个执行回调函数，目的是依次注册子模块。
 
-所以使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`
-但你在跟模块注册的mutation和在子模块注册的mutation，如果同名的话，调用store.commit('xxx')，将会调用根模块和子模块的该mutation，除非区分命名
-vuex2后的版本添加了命名空间的功能，使得module更加模块化，只有state是被模块化了，action mutation getter都还是在全局的模块下
+然而子模块也可能有自己的嵌套模块，所以在回调函数中递归调用 register，将当前遍历的key值追加到path，和value值（遍历的子模块对象）、runtime一同作为参数传入 register。
 
-属性初始化完毕后，从this中（store实例）解构出Store的原型上的dispatch、commit方法，进行二次包装（将执行时的this指向当前store实例，否则在组件里调用this.xxx时this指向当前vm实例）后，作为属性方法挂载到this上（store实例）
-
-简言之，就是把Store类的原型上的两个方法挂载到当前store实例上，并把this也指向这个store实例。
-这样我们在组件中通过 this.$store 直接调用这两方法时，方法中的this不会指向当前组件的vm实例
-```js
-  const store = this // store取到当前Store实例
-  const { dispatch, commit } = this // dispatch、commit 取到Store原型上的同名方法
-  this.dispatch = function boundDispatch(type, payload) { // 挂载到store实例
-    // 执行时的this改成指向store，否则在组件里调用this.dispatch，this指向当前vm实例
-    return dispatch.call(store, type, payload)
-  }
-  this.commit = function boundCommit(type, payload, options) {
-    return commit.call(store, type, payload, options)
-  }
-```
-
-接着，包括严格模式的设置、根state的赋值、模块的注册、state的响应式、插件的注册等等，其中的重点在 installModule 函数中，在这里实现了所有modules的注册。
+我们看看 forEachValue 是如何遍历 modules 对象：
 
 ```js
-  // options中传入的，是否启用严格模式
-  this.strict = strict
-  // new ModuleCollection 构造出来的_mudules
-  const state = this._modules.root.state
-
-  // 初始化根module，同时递归注册所有的子module
-  // 收集所有module的 getters 存储到 this._wrappedGetters
-  // this._modules.root：根module才独有保存的Module对象
-  installModule(this, state, [], this._modules.root)
-
-  // 通过Vue实例，初始化 store.vm，使state变成响应式的，并将getters变成计算属性
-  resetStoreVM(this, state)
-
-  // 注册 Vuex 插件
-  plugins.forEach(plugin => plugin(this))
-
-// 调试工具注册
-  const useDevtools = options.devtools !== undefined ? options.devtools : Vue.config.devtools
-  if (useDevtools) {
-    devtoolPlugin(this)
-  }
+export function forEachValue (obj, fn) {
+  Object.keys(obj).forEach(key => fn(obj[key], key))
+}
 ```
 
-到目前为止，constructor 中所有的代码已经分析完毕。
-Store函数主要做了三件事：
+遍历 key 们，对每个 key-value 执行 fn，参数 value 在前。
 
-1. 初始化一些内部变量，特别是初始化module
-2. 执行installModule，安装了模块
-3. 执行了resetStoreVM，初始化 store.vm，通过vm使store响应式
-  
+所以第二次调用 register 时，因为当前模块是子模块了，就会进入 else 部分，通过 getChild 先获取到父模块，再调用 addChild，建立 module 之间的父子关系。然后再看当前子模块是否还有子模块，有则继续调用 register。
+
+到这里，你还不了解 getChild、addChild 怎么实现的，它们其实是 Module 的原型方法，我们先看看 Module 构造函数。
+
+```js
+const newModule = new Module(rawModule, runtime)
+```
+
+Vuex 的设计者将用户定义的 module 配置称为 rawModule ，因为它单纯就是一个配置对象，根据这些配置调用 new Moudle 之后才实现了从 rawModule 到 newModule 的转变，raw 是“未加工的”之意
+
+```js
+export default class Module {
+  constructor (rawModule, runtime) {
+    this.runtime = runtime
+    this._children = Object.create(null) // 保存该模块的子模块
+    this._rawModule = rawModule // 存放模块配置
+    const rawState = rawModule.state
+    // 存放module的state
+    this.state = (typeof rawState === 'function' ? rawState() : rawState) || {}
+  }
+  get namespaced () {
+    return !!this._rawModule.namespaced
+  }
+  addChild (key, module) { // 子模块写入_children中
+    this._children[key] = module
+  }
+  removeChild (key) {
+    delete this._children[key]
+  }
+  getChild (key) { // 返回子模块
+    return this._children[key]
+  }
+  update (rawModule) {
+    this._rawModule.namespaced = rawModule.namespaced
+    if (rawModule.actions) {
+      this._rawModule.actions = rawModule.actions
+    }
+    if (rawModule.mutations) {
+      this._rawModule.mutations = rawModule.mutations
+    }
+    if (rawModule.getters) {
+      this._rawModule.getters = rawModule.getters
+    }
+  }
+  forEachChild (fn) {
+    forEachValue(this._children, fn)
+  }
+  forEachGetter (fn) {
+    if (this._rawModule.getters) {
+      forEachValue(this._rawModule.getters, fn)
+    }
+  }
+  forEachAction (fn) {
+    if (this._rawModule.actions) {
+      forEachValue(this._rawModule.actions, fn)
+    }
+  }
+  forEachMutation (fn) {
+    if (this._rawModule.mutations) {
+      forEachValue(this._rawModule.mutations, fn)
+    }
+  }
+}
+```
+
+Module 构造函数先对传入的一些值进行保存，传入的 rawModule 和 runtime ，this._children 存放该模块的子模块，this.state 存放该模块的 state 。
+
+此外，Module 提供了很多原型方法：
+namespaced：当前模块的配置中是否存在 namespaced
+addChild：将子模块（key - module）存到 this._children
+removeChild：从 this._children 删除子模块（key - module）
+getChild：从 this._children 根据 key 获取 子模块 module
+update：负责整个模块的更新
+....
+
+现在我们回过头，梳理整个 new ModuleCollection 的过程，这是一个构建 module 和收集 module 的过程。
+
+先执行register，注册 root module ，传入空数组 path、rawRootModule、runtime，在 register 内部，新建一个 module 对象，此时为根 module 对象，把它存到 this.root，然后看 rawRootModule 里有没有 modules ，有就遍历里面的键值对，应用回调函数（递归调用 register ），传入子模块的 path、value值（遍历的rawChildModule）、runtime。
+
+我们构建 module 的同时，要建立父子模块之间的关系，因此，通过判断 path 的长度，为 0 代表是根 module ，赋给 this.root ；否则，获取到这个 module 的 parent。
+
+`const parent = this.get(path.slice(0, -1))`
+
+父模块的 path 就是当前 path 截取到倒数第二个元素，我们来看 get 的实现：
+
+```js
+// ModuleCollection 的原型方法 get
+get (path) {
+  return path.reduce((module, key) => {
+    return module.getChild(key)
+  }, this.root)
+}
+```
+
+因为path是整个模块树的路径，这里通过reduce方法一层层解析去找到对应模块，查找的过程是用的module.getChild(key)方法，返回的是this._children[key]，这些_children就是通过执行parent.addChild(path[path.length - 1], newModule)方法添加的，就这样，每一个模块都通过path去寻找到parent`module，然后通过addChild建立父子关系，逐级递进，构建完成整个module`树。
+
 ### installModule
 
 ```js
@@ -369,3 +488,16 @@ function installModule(store, rootState, path, module, hot) {
   })
 }
 ```
+
+
+所以使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`
+但你在跟模块注册的mutation和在子模块注册的mutation，如果同名的话，调用store.commit('xxx')，将会调用根模块和子模块的该mutation，除非区分命名
+vuex2后的版本添加了命名空间的功能，使得module更加模块化，只有state是被模块化了，action mutation getter都还是在全局的模块下
+
+使用了 module 之后，state 则会被模块化。比如要调用根模块的 state，则调用 store.state.count，如果要调用 a 模块的 state，则调用 store.state.a.count。
+但是示例中的 mutation 则是注册在全局下的，即调用 store.commit('addNote')，将会调用跟模块和 a 模块的 mutation。除非区分各模块 mutation 的命名，否则，在同名的情况下，只要 commit 后就会被触发调用。
+当然，vuex 2.0.0 后面的版本添加了命名空间 的功能，使得 module 更加的模块化。
+所以接下来要解读的 module 中，实际上只要 state 是被模块化了， action、mutation 和 getter 还是在全局的模块下。
+
+
+
