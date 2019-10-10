@@ -18,7 +18,42 @@ import Vuex from 'vuex';
 Vue.use(vuex);
 ```
 
-入口文件src\index.js，Vuex 导出的一个对象。
+在使用Vuex前，要先安装Vuex，即执行 Vue.use(vuex)。
+
+Vue.js 文档原话是：
+
+>Vue.use(plugin)
+>安装 Vue.js 插件。如果plugin是一个对象，它必须提供 install 方法。如果plugin是一个函数，则它被作为 install 方法。
+>Vue.use 需要在调用 new Vue() 之前被调用。
+
+我们不妨看看 `Vue` 源码中 `Vue.use` 的实现，看看是如何调用了插件的 `install`。
+
+
+```js
+initUse(Vue);
+function initUse (Vue) {
+  Vue.use = function (plugin) {
+    var installedPlugins = (this._installedPlugins || (this._installedPlugins = []));
+    if (installedPlugins.indexOf(plugin) > -1) { 
+      return this // 注册过此插件，直接返回 Vue 本身
+    }
+    var args = toArray(arguments, 1); 
+    // 从索引1开始，参数类数组转成数组
+    args.unshift(this); // args数组的第一项是Vue
+    if (typeof plugin.install === 'function') {
+      plugin.install.apply(plugin, args); 
+    // 调用install，把Vue作为第一个参数传入
+    } else if (typeof plugin === 'function') {
+      plugin.apply(null, args);
+    }
+    installedPlugins.push(plugin); // 注册过的plugin
+    return this
+  };
+}
+```
+所以我们看到，Vue.use执行时，install调用时，会将 Vue 作为参数传入
+
+我们看到 Vuex 的入口文件，在src\index.js。
 
 ```js
 // 入口文件
@@ -33,81 +68,63 @@ export default {
   createNamespacedHelpers
 }
 ```
-
-作为 Vue 的插件，Vuex 导出了一个对象，对外暴露了 install 方法。Vuex 在使用前，要先安装。必须在 `new Vue()` 之前调用 `Vue.use(Vuex)`
-
-这是 Vue 的官方文档告诉我们的，我们不妨看看 Vue 源码中 `Vue.use` 如何调用了插件的 install。
-
-```js
-initUse(Vue);
-function initUse (Vue) {
-  Vue.use = function (plugin) {
-    var installedPlugins = (this._installedPlugins || (this._installedPlugins = []));
-    if (installedPlugins.indexOf(plugin) > -1) { // 注册过此插件，直接返回 Vue 本身
-      return this
-    }
-    var args = toArray(arguments, 1); // 从索引1开始，参数类数组转成数组
-    args.unshift(this);
-    if (typeof plugin.install === 'function') { // 如果plugin是对象且有install方法
-      plugin.install.apply(plugin, args); // 调用install，把 Vue 作为第一个参数传入
-    } else if (typeof plugin === 'function') {
-      plugin.apply(null, args);
-    }
-    installedPlugins.push(plugin); // 注册过的 plugin 推入数组
-    return this
-  };
-}
-```
-
-所以，Vue.use(Vuex) 会调用 Vuex 的 install 方法，并把 Vue 作为第一个参数传入 install。
-
-现在我们知道为什么 Vuex 要提供一个 install 方法，接下来我们看 `install` 方法做了什么。
+导出的对象对外暴露了install方法，接下来我们看 `install` 方法到底做了什么。
 
 ```js
 let Vue
 // ....
-export function install(_Vue) {
-  if (Vue && _Vue === Vue) { // 避免重复安装 Vuex
-    if (process.env.NODE_ENV !== 'production') {
+function install (_Vue) {
+  if (Vue && _Vue === Vue) { //避免重复安装 Vuex
       console.error(
         '[vuex] already installed. Vue.use(Vuex) should be called only once.'
-      )
-    }
+      );
     return
   }
-  Vue = _Vue // 保存传入的Vue
-  applyMixin(Vue)
+  Vue = _Vue; // 保存传入的Vue对象
+  applyMixin(Vue);
 }
 ```
 
 所以install代码做了两件事：
 
-1. 避免Vuex重复安装: 如果 Vue 已经存在并且全等于传入的 Vue ，直接返回
+1. 避免Vuex重复安装: 如果 Vue 有值，并且 === 传入的 Vue 对象，直接返回
 2. 调用applyMixin(Vue)
 
-所以，applyMixin 方法承担了安装的事，我们继续看 applyMixin 的实现：
+所以，applyMixin 方法做了真正的安装工作，我们看看 applyMixin 的实现：
 
 ```js
-// applyMixin
-export default function (Vue) {
+function applyMixin (Vue) {
   const version = Number(Vue.version.split('.')[0])
   if (version >= 2) {
     Vue.mixin({ beforeCreate: vuexInit })
-    // Vue.mixin：全局注册一个混入，影响注册之后创建的每个Vue实例。
   } else {
     // Vue 1.x 的处理，不做分析
   }
-
   function vuexInit () {
-    // 先省略
+    // 暂时省略
   }
 }
 ```
+applyMixin 中，先判断Vue的版本，1.x版本我们不做分析，2.x的版本，调用 Vue.mixin。它的作用是：全局注册一个混入，会影响注册之后创建的每个 Vue 实例。
 
-可知，applyMixin 在全局注册混入一个 beforeCreate 钩子 vuexInit，之后创建的每个 Vue 实例的生命周期中都会调用它。
+由此可知，applyMixin 在全局注册混入一个 beforeCreate 生命周期函数：vuexInit，每个 Vue 实例的生命周期中都会调用它。
 
-我们在使用 Vuex 时，需要将 store 作为配置项注入到 new VUe 中
+那vuexInit做了什么呢，顾名思义，就是 vuex 的初始化。看看它的实现：
 
+```js
+function vuexInit () {
+  var options = this.$options;
+  // store 注入
+  if (options.store) {
+    this.$store = typeof options.store === 'function'
+      ? options.store()
+      : options.store;
+  } else if (options.parent && options.parent.$store) {
+    this.$store = options.parent.$store;
+  }
+}
+```
+vuexInit执行时，this执行当前Vue实例，所以this.$options就是当前 Vue 实例的初始化选项，this.$options.store就是我们传入new Vue的options对象中的store对象。
 ```js
 new Vue({
   store,
@@ -115,27 +132,11 @@ new Vue({
   render: h => h(App)
 }).$mount('#app')
 ```
+回到vuexInit，注意到if else判断，如果options.store存在，说明当前是根Vue实例，传入store对象，我们把它赋给this.$store，挂到实例上；如果不是根Vue实例，再判断，是否有父组件并且父组件是否有$store，如果有，当前子组件也挂一个$store属性，属性值为父组件的$store，即options.parent.$store
 
-注册了之后创建的每一个 Vue 实例中都可以访问到这个 store，vuexInit 做了什么？
+因此 vuexInit就是将 `new Vue()` 时传入的 `store` 对象保存到根实例的 `$store`，再赋给它下面的子组件实例的 `$store`，每个组件的beforeCreate钩子执行后，组件实例都挂载了`$store`，值都取到了同一个 `store` 对象。
 
-```js
-function vuexInit () {
-  const options = this.$options
-  // options.store 就是我们 new Vue 时传入的对象里的 store
-  if (options.store) { // 如果存在，代表当前组件是根组件
-    this.$store = typeof options.store === 'function'
-      ? options.store()
-      : options.store
-  } else if (options.parent && options.parent.$store) {
-    // this.$options没有store(意味着是子组件)，就取父组件的$store
-    this.$store = options.parent.$store
-  }
-}
-```
-
-vuexInit 就是将 `new Vue()` 时传入的 `store` 对象保存到根实例的 `$store`，然后赋给下面子组件实例的 `$store`，一层层下去，每一个组件实例都挂载了 `$store` ， `this.$store` 都取到同一个 `store` 对象。
-
-这种注入机制：在根实例中注册 store 选项，store 实例会注入到根组件下的所有子组件，注入方法是子组件从父组件拿。
+这种子组件从父组件中拿的注入机制，使得之后创建的每一个Vue实例都能访问到根实例中注册的store对象。
 
 ## 怎么理解 store 对象
 

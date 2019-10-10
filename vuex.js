@@ -1,17 +1,9 @@
-/**
- * vuex v3.1.1
- * (c) 2019 Evan You
- * @license MIT
- */
+/**vuex v3.1.1*/
 (function (global, factory) {
-  typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
-  typeof define === 'function' && define.amd ? define(factory) :
-  (global = global || self, global.Vuex = factory());
+  typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :typeof define === 'function' && define.amd ? define(factory) :(global = global || self, global.Vuex = factory());
 }(this, function () { 'use strict';
-
   function applyMixin (Vue) {
     var version = Number(Vue.version.split('.')[0]);
-
     if (version >= 2) {
       Vue.mixin({ beforeCreate: vuexInit });
     } else {
@@ -44,14 +36,8 @@
       }
     }
   }
-
-  var target = typeof window !== 'undefined'
-    ? window
-    : typeof global !== 'undefined'
-      ? global
-      : {};
+  var target = typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : {};
   var devtoolHook = target.__VUE_DEVTOOLS_GLOBAL_HOOK__;
-
   function devtoolPlugin (store) {
     if (!devtoolHook) { return }
 
@@ -67,7 +53,6 @@
       devtoolHook.emit('vuex:mutation', mutation, state);
     });
   }
-
   /**
    * Get the first item that pass the test
    * by second argument function
@@ -76,154 +61,118 @@
    * @param {Function} f
    * @return {*}
    */
-
-  /**
-   * forEach for object
-   */
-  function forEachValue (obj, fn) {
-    Object.keys(obj).forEach(function (key) { return fn(obj[key], key); });
+  // 针对对象的遍历，回调函数fn传入val和key
+  const forEachValue = (obj, fn) => {
+    Object.keys(obj).forEach(key => fn(obj[key], key))
   }
-
-  function isObject (obj) {
-    return obj !== null && typeof obj === 'object'
+  const isObject = obj => obj !== null && typeof obj === 'object'
+  const isPromise = val => val && typeof val.then === 'function'
+  const assert = (condition, msg) => {
+    if (!condition) throw new Error(`[vuex] ${msg}`)
   }
+  const partial = (fn, arg) => () => fn(arg)
 
-  function isPromise (val) {
-    return val && typeof val.then === 'function'
-  }
-
-  function assert (condition, msg) {
-    if (!condition) { throw new Error(("[vuex] " + msg)) }
-  }
-
-  function partial (fn, arg) {
-    return function () {
-      return fn(arg)
+  // store的module的基本数据结构
+  class Module {
+    constructor (rawModule, runtime) {
+      this.runtime = runtime
+      // Store some children item
+      this._children = Object.create(null)
+      // Store the origin module object which passed by programmer
+      this._rawModule = rawModule
+      const rawState = rawModule.state
+      // Store the origin module's state
+      this.state = (typeof rawState === 'function' ? rawState() : rawState) || {}
+    }
+    get namespaced () {
+      return !!this._rawModule.namespaced
+    }
+    addChild (key, module) {
+      this._children[key] = module
+    }
+    removeChild (key) {
+      delete this._children[key]
+    }
+    getChild (key) {
+      return this._children[key]
+    }
+    update (rawModule) {
+      this._rawModule.namespaced = rawModule.namespaced
+      if (rawModule.actions) {
+        this._rawModule.actions = rawModule.actions
+      }
+      if (rawModule.mutations) {
+        this._rawModule.mutations = rawModule.mutations
+      }
+      if (rawModule.getters) {
+        this._rawModule.getters = rawModule.getters
+      }
+    }
+    forEachChild (fn) {
+      forEachValue(this._children, fn)
+    }
+    forEachGetter (fn) {
+      if (this._rawModule.getters) {
+        forEachValue(this._rawModule.getters, fn)
+      }
+    }
+    forEachAction (fn) {
+      if (this._rawModule.actions) {
+        forEachValue(this._rawModule.actions, fn)
+      }
+    }
+    forEachMutation (fn) {
+      if (this._rawModule.mutations) {
+        forEachValue(this._rawModule.mutations, fn)
+      }
     }
   }
-
-  // Base data struct for store's module, package with some attribute and method
-  var Module = function Module (rawModule, runtime) {
-    this.runtime = runtime;
-    // Store some children item
-    this._children = Object.create(null);
-    // Store the origin module object which passed by programmer
-    this._rawModule = rawModule;
-    var rawState = rawModule.state;
-
-    // Store the origin module's state
-    this.state = (typeof rawState === 'function' ? rawState() : rawState) || {};
-  };
-
-  var prototypeAccessors = { namespaced: { configurable: true } };
-
-  prototypeAccessors.namespaced.get = function () {
-    return !!this._rawModule.namespaced
-  };
-
-  Module.prototype.addChild = function addChild (key, module) {
-    this._children[key] = module;
-  };
-
-  Module.prototype.removeChild = function removeChild (key) {
-    delete this._children[key];
-  };
-
-  Module.prototype.getChild = function getChild (key) {
-    return this._children[key]
-  };
-
-  Module.prototype.update = function update (rawModule) {
-    this._rawModule.namespaced = rawModule.namespaced;
-    if (rawModule.actions) {
-      this._rawModule.actions = rawModule.actions;
+  class ModuleCollection {
+    constructor (rawRootModule) {
+      // register root module (Vuex.Store options)
+      this.register([], rawRootModule, false)
     }
-    if (rawModule.mutations) {
-      this._rawModule.mutations = rawModule.mutations;
+    get (path) {
+      return path.reduce((module, key) => {
+        return module.getChild(key)
+      }, this.root)
     }
-    if (rawModule.getters) {
-      this._rawModule.getters = rawModule.getters;
+    getNamespace (path) {
+      let module = this.root
+      return path.reduce((namespace, key) => {
+        module = module.getChild(key)
+        return namespace + (module.namespaced ? key + '/' : '')
+      }, '')
     }
-  };
-
-  Module.prototype.forEachChild = function forEachChild (fn) {
-    forEachValue(this._children, fn);
-  };
-
-  Module.prototype.forEachGetter = function forEachGetter (fn) {
-    if (this._rawModule.getters) {
-      forEachValue(this._rawModule.getters, fn);
+    update (rawRootModule) {
+      update([], this.root, rawRootModule)
     }
-  };
-
-  Module.prototype.forEachAction = function forEachAction (fn) {
-    if (this._rawModule.actions) {
-      forEachValue(this._rawModule.actions, fn);
+    register (path, rawModule, runtime = true) {
+      if (process.env.NODE_ENV !== 'production') {
+        assertRawModule(path, rawModule)
+      }
+      const newModule = new Module(rawModule, runtime)
+      if (path.length === 0) {
+        this.root = newModule
+      } else {
+        const parent = this.get(path.slice(0, -1))
+        parent.addChild(path[path.length - 1], newModule)
+      }
+      // register nested modules
+      if (rawModule.modules) {
+        forEachValue(rawModule.modules, (rawChildModule, key) => {
+          this.register(path.concat(key), rawChildModule, runtime)
+        })
+      }
     }
-  };
-
-  Module.prototype.forEachMutation = function forEachMutation (fn) {
-    if (this._rawModule.mutations) {
-      forEachValue(this._rawModule.mutations, fn);
+    unregister (path) {
+      const parent = this.get(path.slice(0, -1))
+      const key = path[path.length - 1]
+      if (!parent.getChild(key).runtime) return
+  
+      parent.removeChild(key)
     }
-  };
-
-  Object.defineProperties( Module.prototype, prototypeAccessors );
-
-  var ModuleCollection = function ModuleCollection (rawRootModule) {
-    // register root module (Vuex.Store options)
-    this.register([], rawRootModule, false);
-  };
-
-  ModuleCollection.prototype.get = function get (path) {
-    return path.reduce(function (module, key) {
-      return module.getChild(key)
-    }, this.root)
-  };
-
-  ModuleCollection.prototype.getNamespace = function getNamespace (path) {
-    var module = this.root;
-    return path.reduce(function (namespace, key) {
-      module = module.getChild(key);
-      return namespace + (module.namespaced ? key + '/' : '')
-    }, '')
-  };
-
-  ModuleCollection.prototype.update = function update$1 (rawRootModule) {
-    update([], this.root, rawRootModule);
-  };
-
-  ModuleCollection.prototype.register = function register (path, rawModule, runtime) {
-      var this$1 = this;
-      if ( runtime === void 0 ) runtime = true;
-
-    {
-      assertRawModule(path, rawModule);
-    }
-
-    var newModule = new Module(rawModule, runtime);
-    if (path.length === 0) {
-      this.root = newModule;
-    } else {
-      var parent = this.get(path.slice(0, -1));
-      parent.addChild(path[path.length - 1], newModule);
-    }
-
-    // register nested modules
-    if (rawModule.modules) {
-      forEachValue(rawModule.modules, function (rawChildModule, key) {
-        this$1.register(path.concat(key), rawChildModule, runtime);
-      });
-    }
-  };
-
-  ModuleCollection.prototype.unregister = function unregister (path) {
-    var parent = this.get(path.slice(0, -1));
-    var key = path[path.length - 1];
-    if (!parent.getChild(key).runtime) { return }
-
-    parent.removeChild(key);
-  };
+  }
 
   function update (path, targetModule, newModule) {
     {
@@ -254,14 +203,14 @@
     }
   }
 
-  var functionAssert = {
-    assert: function (value) { return typeof value === 'function'; },
+  const functionAssert = {
+    assert: value => typeof value === 'function',
     expected: 'function'
-  };
+  }
 
   var objectAssert = {
-    assert: function (value) { return typeof value === 'function' ||
-      (typeof value === 'object' && typeof value.handler === 'function'); },
+    assert: value => typeof value === 'function' ||
+      (typeof value === 'object' && typeof value.handler === 'function'),
     expected: 'function or object with "handler" function'
   };
 
@@ -295,239 +244,224 @@
     return buf
   }
 
-  var Vue; // bind on install
-
-  var Store = function Store (options) {
-    var this$1 = this;
-    if ( options === void 0 ) options = {};
-
-    // Auto install if it is not done yet and `window` has `Vue`.
-    // To allow users to avoid auto-installation in some cases,
-    // this code should be placed here. See #731
-    if (!Vue && typeof window !== 'undefined' && window.Vue) {
-      install(window.Vue);
-    }
-
-    {
-      assert(Vue, "must call Vue.use(Vuex) before creating a store instance.");
-      assert(typeof Promise !== 'undefined', "vuex requires a Promise polyfill in this browser.");
-      assert(this instanceof Store, "store must be called with the new operator.");
-    }
-
-    var plugins = options.plugins; if ( plugins === void 0 ) plugins = [];
-    var strict = options.strict; if ( strict === void 0 ) strict = false;
-
-    // store internal state
-    this._committing = false;
-    this._actions = Object.create(null);
-    this._actionSubscribers = [];
-    this._mutations = Object.create(null);
-    this._wrappedGetters = Object.create(null);
-    this._modules = new ModuleCollection(options);
-    this._modulesNamespaceMap = Object.create(null);
-    this._subscribers = [];
-    this._watcherVM = new Vue();
-
-    // bind commit and dispatch to self
-    var store = this;
-    var ref = this;
-    var dispatch = ref.dispatch;
-    var commit = ref.commit;
-    this.dispatch = function boundDispatch (type, payload) {
-      return dispatch.call(store, type, payload)
-    };
-    this.commit = function boundCommit (type, payload, options) {
-      return commit.call(store, type, payload, options)
-    };
-
-    // strict mode
-    this.strict = strict;
-
-    var state = this._modules.root.state;
-
-    // init root module.
-    // this also recursively registers all sub-modules
-    // and collects all module getters inside this._wrappedGetters
-    installModule(this, state, [], this._modules.root);
-
-    // initialize the store vm, which is responsible for the reactivity
-    // (also registers _wrappedGetters as computed properties)
-    resetStoreVM(this, state);
-
-    // apply plugins
-    plugins.forEach(function (plugin) { return plugin(this$1); });
-
-    var useDevtools = options.devtools !== undefined ? options.devtools : Vue.config.devtools;
-    if (useDevtools) {
-      devtoolPlugin(this);
-    }
-  };
-
-  var prototypeAccessors$1 = { state: { configurable: true } };
-
-  prototypeAccessors$1.state.get = function () {
-    return this._vm._data.$$state
-  };
-
-  prototypeAccessors$1.state.set = function (v) {
-    {
-      assert(false, "use store.replaceState() to explicit replace store state.");
-    }
-  };
-
-  Store.prototype.commit = function commit (_type, _payload, _options) {
-      var this$1 = this;
-
-    // check object-style commit
-    var ref = unifyObjectStyle(_type, _payload, _options);
-      var type = ref.type;
-      var payload = ref.payload;
-      var options = ref.options;
-
-    var mutation = { type: type, payload: payload };
-    var entry = this._mutations[type];
-    if (!entry) {
-      {
-        console.error(("[vuex] unknown mutation type: " + type));
+  let Vue; // bind on install
+  class Store {
+    constructor (options = {}) {
+      // Auto install if it is not done yet and `window` has `Vue`.
+      // To allow users to avoid auto-installation in some cases,
+      // this code should be placed here. See #731
+      if (!Vue && typeof window !== 'undefined' && window.Vue) {
+        install(window.Vue)
       }
-      return
-    }
-    this._withCommit(function () {
-      entry.forEach(function commitIterator (handler) {
-        handler(payload);
-      });
-    });
-    this._subscribers.forEach(function (sub) { return sub(mutation, this$1.state); });
-
-    if (
-      options && options.silent
-    ) {
-      console.warn(
-        "[vuex] mutation type: " + type + ". Silent option has been removed. " +
-        'Use the filter functionality in the vue-devtools'
-      );
-    }
-  };
-
-  Store.prototype.dispatch = function dispatch (_type, _payload) {
-      var this$1 = this;
-
-    // check object-style dispatch
-    var ref = unifyObjectStyle(_type, _payload);
-      var type = ref.type;
-      var payload = ref.payload;
-
-    var action = { type: type, payload: payload };
-    var entry = this._actions[type];
-    if (!entry) {
-      {
-        console.error(("[vuex] unknown action type: " + type));
+  
+      if (process.env.NODE_ENV !== 'production') {
+        assert(Vue, `must call Vue.use(Vuex) before creating a store instance.`)
+        assert(typeof Promise !== 'undefined', `vuex requires a Promise polyfill in this browser.`)
+        assert(this instanceof Store, `store must be called with the new operator.`)
       }
-      return
-    }
-
-    try {
-      this._actionSubscribers
-        .filter(function (sub) { return sub.before; })
-        .forEach(function (sub) { return sub.before(action, this$1.state); });
-    } catch (e) {
-      {
-        console.warn("[vuex] error in before action subscribers: ");
-        console.error(e);
+  
+      const {
+        plugins = [],
+        strict = false
+      } = options
+  
+      // store internal state
+      this._committing = false
+      this._actions = Object.create(null)
+      this._actionSubscribers = []
+      this._mutations = Object.create(null)
+      this._wrappedGetters = Object.create(null)
+      this._modules = new ModuleCollection(options)
+      this._modulesNamespaceMap = Object.create(null)
+      this._subscribers = []
+      this._watcherVM = new Vue()
+  
+      // bind commit and dispatch to self
+      const store = this
+      const { dispatch, commit } = this
+      this.dispatch = function boundDispatch (type, payload) {
+        return dispatch.call(store, type, payload)
+      }
+      this.commit = function boundCommit (type, payload, options) {
+        return commit.call(store, type, payload, options)
+      }
+  
+      // strict mode
+      this.strict = strict
+  
+      const state = this._modules.root.state
+  
+      // init root module.
+      // this also recursively registers all sub-modules
+      // and collects all module getters inside this._wrappedGetters
+      installModule(this, state, [], this._modules.root)
+  
+      // initialize the store vm, which is responsible for the reactivity
+      // (also registers _wrappedGetters as computed properties)
+      resetStoreVM(this, state)
+  
+      // apply plugins
+      plugins.forEach(plugin => plugin(this))
+  
+      const useDevtools = options.devtools !== undefined ? options.devtools : Vue.config.devtools
+      if (useDevtools) {
+        devtoolPlugin(this)
       }
     }
-
-    var result = entry.length > 1
-      ? Promise.all(entry.map(function (handler) { return handler(payload); }))
-      : entry[0](payload);
-
-    return result.then(function (res) {
+  
+    get state () {
+      return this._vm._data.$$state
+    }
+  
+    set state (v) {
+      if (process.env.NODE_ENV !== 'production') {
+        assert(false, `use store.replaceState() to explicit replace store state.`)
+      }
+    }
+  
+    commit (_type, _payload, _options) {
+      // check object-style commit
+      const {
+        type,
+        payload,
+        options
+      } = unifyObjectStyle(_type, _payload, _options)
+  
+      const mutation = { type, payload }
+      const entry = this._mutations[type]
+      if (!entry) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(`[vuex] unknown mutation type: ${type}`)
+        }
+        return
+      }
+      this._withCommit(() => {
+        entry.forEach(function commitIterator (handler) {
+          handler(payload)
+        })
+      })
+      this._subscribers.forEach(sub => sub(mutation, this.state))
+  
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        options && options.silent
+      ) {
+        console.warn(
+          `[vuex] mutation type: ${type}. Silent option has been removed. ` +
+          'Use the filter functionality in the vue-devtools'
+        )
+      }
+    }
+  
+    dispatch (_type, _payload) {
+      // check object-style dispatch
+      const {
+        type,
+        payload
+      } = unifyObjectStyle(_type, _payload)
+  
+      const action = { type, payload }
+      const entry = this._actions[type]
+      if (!entry) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(`[vuex] unknown action type: ${type}`)
+        }
+        return
+      }
+  
       try {
-        this$1._actionSubscribers
-          .filter(function (sub) { return sub.after; })
-          .forEach(function (sub) { return sub.after(action, this$1.state); });
+        this._actionSubscribers
+          .filter(sub => sub.before)
+          .forEach(sub => sub.before(action, this.state))
       } catch (e) {
-        {
-          console.warn("[vuex] error in after action subscribers: ");
-          console.error(e);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`[vuex] error in before action subscribers: `)
+          console.error(e)
         }
       }
-      return res
-    })
-  };
-
-  Store.prototype.subscribe = function subscribe (fn) {
-    return genericSubscribe(fn, this._subscribers)
-  };
-
-  Store.prototype.subscribeAction = function subscribeAction (fn) {
-    var subs = typeof fn === 'function' ? { before: fn } : fn;
-    return genericSubscribe(subs, this._actionSubscribers)
-  };
-
-  Store.prototype.watch = function watch (getter, cb, options) {
-      var this$1 = this;
-
-    {
-      assert(typeof getter === 'function', "store.watch only accepts a function.");
+  
+      const result = entry.length > 1
+        ? Promise.all(entry.map(handler => handler(payload)))
+        : entry[0](payload)
+  
+      return result.then(res => {
+        try {
+          this._actionSubscribers
+            .filter(sub => sub.after)
+            .forEach(sub => sub.after(action, this.state))
+        } catch (e) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(`[vuex] error in after action subscribers: `)
+            console.error(e)
+          }
+        }
+        return res
+      })
     }
-    return this._watcherVM.$watch(function () { return getter(this$1.state, this$1.getters); }, cb, options)
-  };
-
-  Store.prototype.replaceState = function replaceState (state) {
-      var this$1 = this;
-
-    this._withCommit(function () {
-      this$1._vm._data.$$state = state;
-    });
-  };
-
-  Store.prototype.registerModule = function registerModule (path, rawModule, options) {
-      if ( options === void 0 ) options = {};
-
-    if (typeof path === 'string') { path = [path]; }
-
-    {
-      assert(Array.isArray(path), "module path must be a string or an Array.");
-      assert(path.length > 0, 'cannot register the root module by using registerModule.');
+  
+    subscribe (fn) {
+      return genericSubscribe(fn, this._subscribers)
     }
-
-    this._modules.register(path, rawModule);
-    installModule(this, this.state, path, this._modules.get(path), options.preserveState);
-    // reset store to update getters...
-    resetStoreVM(this, this.state);
-  };
-
-  Store.prototype.unregisterModule = function unregisterModule (path) {
-      var this$1 = this;
-
-    if (typeof path === 'string') { path = [path]; }
-
-    {
-      assert(Array.isArray(path), "module path must be a string or an Array.");
+  
+    subscribeAction (fn) {
+      const subs = typeof fn === 'function' ? { before: fn } : fn
+      return genericSubscribe(subs, this._actionSubscribers)
     }
-
-    this._modules.unregister(path);
-    this._withCommit(function () {
-      var parentState = getNestedState(this$1.state, path.slice(0, -1));
-      Vue.delete(parentState, path[path.length - 1]);
-    });
-    resetStore(this);
-  };
-
-  Store.prototype.hotUpdate = function hotUpdate (newOptions) {
-    this._modules.update(newOptions);
-    resetStore(this, true);
-  };
-
-  Store.prototype._withCommit = function _withCommit (fn) {
-    var committing = this._committing;
-    this._committing = true;
-    fn();
-    this._committing = committing;
-  };
-
-  Object.defineProperties( Store.prototype, prototypeAccessors$1 );
+  
+    watch (getter, cb, options) {
+      if (process.env.NODE_ENV !== 'production') {
+        assert(typeof getter === 'function', `store.watch only accepts a function.`)
+      }
+      return this._watcherVM.$watch(() => getter(this.state, this.getters), cb, options)
+    }
+  
+    replaceState (state) {
+      this._withCommit(() => {
+        this._vm._data.$$state = state
+      })
+    }
+  
+    registerModule (path, rawModule, options = {}) {
+      if (typeof path === 'string') path = [path]
+  
+      if (process.env.NODE_ENV !== 'production') {
+        assert(Array.isArray(path), `module path must be a string or an Array.`)
+        assert(path.length > 0, 'cannot register the root module by using registerModule.')
+      }
+  
+      this._modules.register(path, rawModule)
+      installModule(this, this.state, path, this._modules.get(path), options.preserveState)
+      // reset store to update getters...
+      resetStoreVM(this, this.state)
+    }
+  
+    unregisterModule (path) {
+      if (typeof path === 'string') path = [path]
+  
+      if (process.env.NODE_ENV !== 'production') {
+        assert(Array.isArray(path), `module path must be a string or an Array.`)
+      }
+  
+      this._modules.unregister(path)
+      this._withCommit(() => {
+        const parentState = getNestedState(this.state, path.slice(0, -1))
+        Vue.delete(parentState, path[path.length - 1])
+      })
+      resetStore(this)
+    }
+  
+    hotUpdate (newOptions) {
+      this._modules.update(newOptions)
+      resetStore(this, true)
+    }
+  
+    _withCommit (fn) {
+      const committing = this._committing
+      this._committing = true
+      fn()
+      this._committing = committing
+    }
+  }
 
   function genericSubscribe (fn, subs) {
     if (subs.indexOf(fn) < 0) {
@@ -554,92 +488,95 @@
   }
 
   function resetStoreVM (store, state, hot) {
-    var oldVm = store._vm;
-
+    const oldVm = store._vm
+  
     // bind store public getters
-    store.getters = {};
-    var wrappedGetters = store._wrappedGetters;
-    var computed = {};
-    forEachValue(wrappedGetters, function (fn, key) {
+    store.getters = {}
+    const wrappedGetters = store._wrappedGetters
+    const computed = {}
+    forEachValue(wrappedGetters, (fn, key) => {
       // use computed to leverage its lazy-caching mechanism
       // direct inline function use will lead to closure preserving oldVm.
       // using partial to return function with only arguments preserved in closure enviroment.
-      computed[key] = partial(fn, store);
+      computed[key] = partial(fn, store)
       Object.defineProperty(store.getters, key, {
-        get: function () { return store._vm[key]; },
+        get: () => store._vm[key],
         enumerable: true // for local getters
-      });
-    });
-
+      })
+    })
+  
     // use a Vue instance to store the state tree
     // suppress warnings just in case the user has added
     // some funky global mixins
-    var silent = Vue.config.silent;
-    Vue.config.silent = true;
+    const silent = Vue.config.silent
+    Vue.config.silent = true
     store._vm = new Vue({
       data: {
         $$state: state
       },
-      computed: computed
-    });
-    Vue.config.silent = silent;
-
+      computed
+    })
+    Vue.config.silent = silent
+  
     // enable strict mode for new vm
     if (store.strict) {
-      enableStrictMode(store);
+      enableStrictMode(store)
     }
-
+  
     if (oldVm) {
       if (hot) {
         // dispatch changes in all subscribed watchers
         // to force getter re-evaluation for hot reloading.
-        store._withCommit(function () {
-          oldVm._data.$$state = null;
-        });
+        store._withCommit(() => {
+          oldVm._data.$$state = null
+        })
       }
-      Vue.nextTick(function () { return oldVm.$destroy(); });
+      Vue.nextTick(() => oldVm.$destroy())
     }
   }
 
   function installModule (store, rootState, path, module, hot) {
-    var isRoot = !path.length;
-    var namespace = store._modules.getNamespace(path);
-
+    const isRoot = !path.length
+    const namespace = store._modules.getNamespace(path)
+  
     // register in namespace map
     if (module.namespaced) {
-      store._modulesNamespaceMap[namespace] = module;
+      if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
+        console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
+      }
+      store._modulesNamespaceMap[namespace] = module
     }
-
+  
     // set state
     if (!isRoot && !hot) {
-      var parentState = getNestedState(rootState, path.slice(0, -1));
-      var moduleName = path[path.length - 1];
-      store._withCommit(function () {
-        Vue.set(parentState, moduleName, module.state);
-      });
+      const parentState = getNestedState(rootState, path.slice(0, -1))
+      const moduleName = path[path.length - 1]
+      store._withCommit(() => {
+        Vue.set(parentState, moduleName, module.state)
+      })
     }
-
-    var local = module.context = makeLocalContext(store, namespace, path);
-
-    module.forEachMutation(function (mutation, key) {
-      var namespacedType = namespace + key;
-      registerMutation(store, namespacedType, mutation, local);
-    });
-
-    module.forEachAction(function (action, key) {
-      var type = action.root ? key : namespace + key;
-      var handler = action.handler || action;
-      registerAction(store, type, handler, local);
-    });
-
-    module.forEachGetter(function (getter, key) {
-      var namespacedType = namespace + key;
-      registerGetter(store, namespacedType, getter, local);
-    });
-
-    module.forEachChild(function (child, key) {
-      installModule(store, rootState, path.concat(key), child, hot);
-    });
+  
+    const local = module.context = makeLocalContext(store, namespace, path)
+  
+    module.forEachMutation((mutation, key) => {
+      const namespacedType = namespace + key
+      registerMutation(store, namespacedType, mutation, local)
+    })
+  
+    module.forEachAction((action, key) => {
+      const type = action.root ? key : namespace + key
+      const handler = action.handler || action
+      registerAction(store, type, handler, local)
+    })
+  
+    module.forEachGetter((getter, key) => {
+      const namespacedType = namespace + key
+      registerGetter(store, namespacedType, getter, local)
+    })
+  
+    module.forEachChild((child, key) => {
+      installModule(store, rootState, path.concat(key), child, hot)
+    })
   }
 
   /**
@@ -803,11 +740,9 @@
 
   function install (_Vue) {
     if (Vue && _Vue === Vue) {
-      {
         console.error(
           '[vuex] already installed. Vue.use(Vuex) should be called only once.'
         );
-      }
       return
     }
     Vue = _Vue;
@@ -964,10 +899,9 @@
    */
   function normalizeMap (map) {
     return Array.isArray(map)
-      ? map.map(function (key) { return ({ key: key, val: key }); })
-      : Object.keys(map).map(function (key) { return ({ key: key, val: map[key] }); })
+      ? map.map(key => ({ key, val: key }))
+      : Object.keys(map).map(key => ({ key, val: map[key] }))
   }
-
   /**
    * Return a function expect two param contains namespace and map. it will normalize the namespace and then the param's function will handle the new namespace and the map.
    * @param {Function} fn
@@ -984,7 +918,6 @@
       return fn(namespace, map)
     }
   }
-
   /**
    * Search a special module from store by namespace. if module not exist, print error message.
    * @param {Object} store
@@ -999,18 +932,15 @@
     }
     return module
   }
-
   var index = {
-    Store: Store,
-    install: install,
+    Store,
+    install,
     version: '3.1.1',
-    mapState: mapState,
-    mapMutations: mapMutations,
-    mapGetters: mapGetters,
-    mapActions: mapActions,
-    createNamespacedHelpers: createNamespacedHelpers
+    mapState,
+    mapMutations,
+    mapGetters,
+    mapActions,
+    createNamespacedHelpers
   };
-
   return index;
-
 }));
