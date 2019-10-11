@@ -7,12 +7,9 @@
     if (version >= 2) {
       Vue.mixin({ beforeCreate: vuexInit });
     } else {
-      // override init and inject vuex init procedure
-      // for 1.x backwards compatibility.
       var _init = Vue.prototype._init;
       Vue.prototype._init = function (options) {
         if ( options === void 0 ) options = {};
-
         options.init = options.init
           ? [vuexInit].concat(options.init)
           : vuexInit;
@@ -23,7 +20,6 @@
     /**
      * Vuex init hook, injected into each instances init hooks list.
      */
-
     function vuexInit () {
       var options = this.$options;
       // store injection
@@ -40,27 +36,16 @@
   var devtoolHook = target.__VUE_DEVTOOLS_GLOBAL_HOOK__;
   function devtoolPlugin (store) {
     if (!devtoolHook) { return }
-
     store._devtoolHook = devtoolHook;
-
     devtoolHook.emit('vuex:init', store);
-
     devtoolHook.on('vuex:travel-to-state', function (targetState) {
       store.replaceState(targetState);
     });
-
     store.subscribe(function (mutation, state) {
       devtoolHook.emit('vuex:mutation', mutation, state);
     });
   }
-  /**
-   * Get the first item that pass the test
-   * by second argument function
-   *
-   * @param {Array} list
-   * @param {Function} f
-   * @return {*}
-   */
+
   // 针对对象的遍历，回调函数fn传入val和key
   const forEachValue = (obj, fn) => {
     Object.keys(obj).forEach(key => fn(obj[key], key))
@@ -71,7 +56,6 @@
     if (!condition) throw new Error(`[vuex] ${msg}`)
   }
   const partial = (fn, arg) => () => fn(arg)
-
   // store的module的基本数据结构
   class Module {
     constructor (rawModule, runtime) {
@@ -169,63 +153,42 @@
       const parent = this.get(path.slice(0, -1))
       const key = path[path.length - 1]
       if (!parent.getChild(key).runtime) return
-  
       parent.removeChild(key)
     }
   }
-
   function update (path, targetModule, newModule) {
-    {
-      assertRawModule(path, newModule);
-    }
-
+    assertRawModule(path, newModule);
     // update target module
     targetModule.update(newModule);
-
     // update nested modules
     if (newModule.modules) {
       for (var key in newModule.modules) {
         if (!targetModule.getChild(key)) {
-          {
-            console.warn(
-              "[vuex] trying to add a new module '" + key + "' on hot reloading, " +
-              'manual reload is needed'
-            );
-          }
+          console.warn("[vuex] trying to add a new module '" + key + "' on hot reloading, " + 'manual reload is needed');
           return
         }
-        update(
-          path.concat(key),
-          targetModule.getChild(key),
-          newModule.modules[key]
-        );
+        update(path.concat(key), targetModule.getChild(key), newModule.modules[key]);
       }
     }
   }
-
   const functionAssert = {
     assert: value => typeof value === 'function',
     expected: 'function'
   }
-
   var objectAssert = {
     assert: value => typeof value === 'function' ||
       (typeof value === 'object' && typeof value.handler === 'function'),
     expected: 'function or object with "handler" function'
   };
-
   var assertTypes = {
     getters: functionAssert,
     mutations: functionAssert,
     actions: objectAssert
   };
-
   function assertRawModule (path, rawModule) {
     Object.keys(assertTypes).forEach(function (key) {
       if (!rawModule[key]) { return }
-
       var assertOptions = assertTypes[key];
-
       forEachValue(rawModule[key], function (value, type) {
         assert(
           assertOptions.assert(value),
@@ -234,7 +197,6 @@
       });
     });
   }
-
   function makeAssertionMessage (path, key, type, value, expected) {
     var buf = key + " should be " + expected + " but \"" + key + "." + type + "\"";
     if (path.length > 0) {
@@ -243,7 +205,6 @@
     buf += " is " + (JSON.stringify(value)) + ".";
     return buf
   }
-
   let Vue; // bind on install
   class Store {
     constructor (options = {}) {
@@ -308,25 +269,17 @@
         devtoolPlugin(this)
       }
     }
-  
     get state () {
       return this._vm._data.$$state
     }
-  
     set state (v) {
       if (process.env.NODE_ENV !== 'production') {
         assert(false, `use store.replaceState() to explicit replace store state.`)
       }
     }
-  
     commit (_type, _payload, _options) {
       // check object-style commit
-      const {
-        type,
-        payload,
-        options
-      } = unifyObjectStyle(_type, _payload, _options)
-  
+      let { type, payload, options } = unifyObjectStyle(_type, _payload, _options)
       const mutation = { type, payload }
       const entry = this._mutations[type]
       if (!entry) {
@@ -341,25 +294,16 @@
         })
       })
       this._subscribers.forEach(sub => sub(mutation, this.state))
-  
       if (
         process.env.NODE_ENV !== 'production' &&
         options && options.silent
       ) {
-        console.warn(
-          `[vuex] mutation type: ${type}. Silent option has been removed. ` +
-          'Use the filter functionality in the vue-devtools'
-        )
+        console.warn(`[vuex] mutation type: ${type}. Silent option has been removed. ` + 'Use the filter functionality in the vue-devtools')
       }
     }
-  
     dispatch (_type, _payload) {
       // check object-style dispatch
-      const {
-        type,
-        payload
-      } = unifyObjectStyle(_type, _payload)
-  
+      const { type, payload } = unifyObjectStyle(_type, _payload)
       const action = { type, payload }
       const entry = this._actions[type]
       if (!entry) {
@@ -368,7 +312,6 @@
         }
         return
       }
-  
       try {
         this._actionSubscribers
           .filter(sub => sub.before)
@@ -379,11 +322,9 @@
           console.error(e)
         }
       }
-  
       const result = entry.length > 1
         ? Promise.all(entry.map(handler => handler(payload)))
         : entry[0](payload)
-  
       return result.then(res => {
         try {
           this._actionSubscribers
@@ -398,29 +339,24 @@
         return res
       })
     }
-  
     subscribe (fn) {
       return genericSubscribe(fn, this._subscribers)
     }
-  
     subscribeAction (fn) {
       const subs = typeof fn === 'function' ? { before: fn } : fn
       return genericSubscribe(subs, this._actionSubscribers)
     }
-  
     watch (getter, cb, options) {
       if (process.env.NODE_ENV !== 'production') {
         assert(typeof getter === 'function', `store.watch only accepts a function.`)
       }
       return this._watcherVM.$watch(() => getter(this.state, this.getters), cb, options)
     }
-  
     replaceState (state) {
       this._withCommit(() => {
         this._vm._data.$$state = state
       })
     }
-  
     registerModule (path, rawModule, options = {}) {
       if (typeof path === 'string') path = [path]
   
@@ -434,7 +370,6 @@
       // reset store to update getters...
       resetStoreVM(this, this.state)
     }
-  
     unregisterModule (path) {
       if (typeof path === 'string') path = [path]
   
@@ -449,12 +384,10 @@
       })
       resetStore(this)
     }
-  
     hotUpdate (newOptions) {
       this._modules.update(newOptions)
       resetStore(this, true)
     }
-  
     _withCommit (fn) {
       const committing = this._committing
       this._committing = true
@@ -462,7 +395,6 @@
       this._committing = committing
     }
   }
-
   function genericSubscribe (fn, subs) {
     if (subs.indexOf(fn) < 0) {
       subs.push(fn);
@@ -474,7 +406,6 @@
       }
     }
   }
-
   function resetStore (store, hot) {
     store._actions = Object.create(null);
     store._mutations = Object.create(null);
@@ -486,10 +417,8 @@
     // reset vm
     resetStoreVM(store, state, hot);
   }
-
   function resetStoreVM (store, state, hot) {
     const oldVm = store._vm
-  
     // bind store public getters
     store.getters = {}
     const wrappedGetters = store._wrappedGetters
@@ -534,11 +463,9 @@
       Vue.nextTick(() => oldVm.$destroy())
     }
   }
-
   function installModule (store, rootState, path, module, hot) {
     const isRoot = !path.length
     const namespace = store._modules.getNamespace(path)
-  
     // register in namespace map
     if (module.namespaced) {
       if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
@@ -546,7 +473,6 @@
       }
       store._modulesNamespaceMap[namespace] = module
     }
-  
     // set state
     if (!isRoot && !hot) {
       const parentState = getNestedState(rootState, path.slice(0, -1))
@@ -555,25 +481,20 @@
         Vue.set(parentState, moduleName, module.state)
       })
     }
-  
     const local = module.context = makeLocalContext(store, namespace, path)
-  
     module.forEachMutation((mutation, key) => {
       const namespacedType = namespace + key
       registerMutation(store, namespacedType, mutation, local)
     })
-  
     module.forEachAction((action, key) => {
       const type = action.root ? key : namespace + key
       const handler = action.handler || action
       registerAction(store, type, handler, local)
     })
-  
     module.forEachGetter((getter, key) => {
       const namespacedType = namespace + key
       registerGetter(store, namespacedType, getter, local)
     })
-  
     module.forEachChild((child, key) => {
       installModule(store, rootState, path.concat(key), child, hot)
     })
@@ -585,7 +506,6 @@
    */
   function makeLocalContext (store, namespace, path) {
     var noNamespace = namespace === '';
-
     var local = {
       dispatch: noNamespace ? store.dispatch : function (_type, _payload, _options) {
         var args = unifyObjectStyle(_type, _payload, _options);
@@ -603,7 +523,6 @@
 
         return store.dispatch(type, payload)
       },
-
       commit: noNamespace ? store.commit : function (_type, _payload, _options) {
         var args = unifyObjectStyle(_type, _payload, _options);
         var payload = args.payload;
@@ -621,7 +540,6 @@
         store.commit(type, payload, options);
       }
     };
-
     // getters and state object must be gotten lazily
     // because they will be changed by vm update
     Object.defineProperties(local, {
@@ -637,7 +555,6 @@
 
     return local
   }
-
   function makeLocalGetters (store, namespace) {
     var gettersProxy = {};
 
@@ -660,14 +577,12 @@
 
     return gettersProxy
   }
-
   function registerMutation (store, type, handler, local) {
     var entry = store._mutations[type] || (store._mutations[type] = []);
     entry.push(function wrappedMutationHandler (payload) {
       handler.call(store, local.state, payload);
     });
   }
-
   function registerAction (store, type, handler, local) {
     var entry = store._actions[type] || (store._actions[type] = []);
     entry.push(function wrappedActionHandler (payload, cb) {
@@ -692,7 +607,6 @@
       }
     });
   }
-
   function registerGetter (store, type, rawGetter, local) {
     if (store._wrappedGetters[type]) {
       {
@@ -709,7 +623,6 @@
       )
     };
   }
-
   function enableStrictMode (store) {
     store._vm.$watch(function () { return this._data.$$state }, function () {
       {
@@ -717,27 +630,21 @@
       }
     }, { deep: true, sync: true });
   }
-
   function getNestedState (state, path) {
     return path.length
       ? path.reduce(function (state, key) { return state[key]; }, state)
       : state
   }
-
   function unifyObjectStyle (type, payload, options) {
     if (isObject(type) && type.type) {
       options = payload;
       payload = type;
       type = type.type;
     }
-
-    {
-      assert(typeof type === 'string', ("expects string as the type, but found " + (typeof type) + "."));
-    }
+    assert(typeof type === 'string', ("expects string as the type, but found " + (typeof type) + "."));
 
     return { type: type, payload: payload, options: options }
   }
-
   function install (_Vue) {
     if (Vue && _Vue === Vue) {
         console.error(
@@ -748,7 +655,6 @@
     Vue = _Vue;
     applyMixin(Vue);
   }
-
   /**
    * Reduce the code which written in Vue.js for getting the state.
    * @param {String} [namespace] - Module's namespace
@@ -826,7 +732,6 @@
     normalizeMap(getters).forEach(function (ref) {
       var key = ref.key;
       var val = ref.val;
-
       // The namespace has been mutated by normalizeNamespace
       val = namespace + val;
       res[key] = function mappedGetter () {
@@ -856,18 +761,14 @@
     normalizeMap(actions).forEach(function (ref) {
       var key = ref.key;
       var val = ref.val;
-
       res[key] = function mappedAction () {
         var args = [], len = arguments.length;
         while ( len-- ) args[ len ] = arguments[ len ];
-
         // get dispatch function from store
         var dispatch = this.$store.dispatch;
         if (namespace) {
           var module = getModuleByNamespace(this.$store, 'mapActions', namespace);
-          if (!module) {
-            return
-          }
+          if (!module) return
           dispatch = module.context.dispatch;
         }
         return typeof val === 'function'
@@ -932,15 +833,6 @@
     }
     return module
   }
-  var index = {
-    Store,
-    install,
-    version: '3.1.1',
-    mapState,
-    mapMutations,
-    mapGetters,
-    mapActions,
-    createNamespacedHelpers
-  };
+  var index = { Store, install, version: '3.1.1', mapState, mapMutations, mapGetters, mapActions, createNamespacedHelpers };
   return index;
 }));
