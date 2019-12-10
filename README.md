@@ -12,19 +12,23 @@ state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需�
 
 ## Vuex的安装
 
-在使用Vuex前，你必须通过 Vue.use() 来安装 Vuex：
+Vuex 是 Vue 插件，在使用Vuex前，你必须通过 Vue.use() 来安装 Vuex，并且需要调用 new Vue() 启动应用之前：
 
 ```js
 import Vue from 'vue';
 import Vuex from 'vuex';
 Vue.use(vuex);
+
+new Vue({
+  // ...组件选项
+})
 ```
 
->Vue.use(plugin) 作用是 安装 Vue 插件
->如果plugin是一个对象，它必须提供 install 方法。如果plugin是一个函数，则它被作为 install 方法。
+>Vue.use(plugin) 用来安装Vue插件
+>如果插件是一个对象，它必须提供 install 方法。如果插件是一个函数，则它被作为 install 方法。install 接收的第一个参数就是 Vue 对象
 >Vue.use 需要在调用 new Vue() 之前被调用。
 
-我们看到 Vuex 的入口文件，在src\index.js。会发现导出的 Vuex 对象中有 install 方法，
+src\index.js 入口文件中，Vuex 导出默认对象中有 install 方法：
 
 ```js
 export default {
@@ -39,61 +43,65 @@ export default {
 }
 ```
 
-Vue.use执行时，会调用 install，install 接收的第一个参数就是 Vue 对象。
-
-接下来我们看 `install` 方法到底做了什么。
+Vue.use执行时，会调用 install。我们看 `install` 方法。
 
 ```js
 let Vue
 // ....
-function install (_Vue) {
+export function install (_Vue) {
   if (Vue && _Vue === Vue) {
-    console.error(`[vuex] already installed.
-    Vue.use(Vuex) should be called only once.`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[vuex] already installed. Vue.use(Vuex) should be called only once.')
+    }
     return
   }
-  Vue = _Vue;
-  applyMixin(Vue);
+  Vue = _Vue
+  applyMixin(Vue)
 }
 ```
 
-如果是首次安装，install 函数将传入的 Vue 构造函数赋给本地的Vue变量。再次调用install，定义的Vue 已经有值且和传入的 Vue 构造函数全等，会打印警告：“Vuex已经安装过了，Vue.use(Vuex)只能调用一次”。然后直接返回。避免了Vuex插件的重复安装
+如果是首次安装Vuex，Vue不存在，if语句块不执行，install接收的Vue构造函数赋给Vue。如果再次调用install，Vue已经有值，且和传入的Vue全等，则开发环境下会打印警告：“Vuex已经安装了，Vue.use(Vuex)只能调用一次”，然后直接返回，避免了Vuex插件的重复install。
 
-然后调用applyMixin(Vue)，我们看看 applyMixin 的实现：
+然后调用applyMixin(Vue)，我们看看 src\mixin.js 中的 applyMixin 函数：
 
 ```js
-function applyMixin (Vue) {
+export default function (Vue) {
   const version = Number(Vue.version.split('.')[0])
+
   if (version >= 2) {
     Vue.mixin({ beforeCreate: vuexInit })
   } else {
     // Vue 1.x 的处理，不做分析
   }
+
   function vuexInit () {
-    // ...
+    // store 注入
   }
 }
-```
-在 applyMixin 中，如果Vue的版本是2.x，使用生命周期钩子函数的形式注入，调用Vue.mixin。Vue.mixin的作用是：全局注册一个混入，会影响之后创建的每个 Vue 实例。也就是，之后创建的每个Vue实例的执行beforeCreate钩子函数时，都会执行vuexInit。
+``` 
 
-vuexInit函数，顾名思义是初始化 vuex ，看看它的实现：
+在 applyMixin 中，如果Vue的版本是2.x，调用Vue.mixin，混入一个beforeCreate钩子为vuexInit。Vue.mixin的作用是：全局注册一个混入，会影响之后创建的每个 Vue 实例。
+
+这意味着，install之后，创建的每个Vue实例的执行beforeCreate钩子函数时，都会执行vuexInit。
+
+vuexInit顾名思义是初始化 vuex ，看看它的实现：
 
 ```js
 function vuexInit () {
-  var options = this.$options;
+  const options = this.$options
   if (options.store) {
     this.$store = typeof options.store === 'function'
       ? options.store()
-      : options.store;
+      : options.store
   } else if (options.parent && options.parent.$store) {
-    this.$store = options.parent.$store;
+    this.$store = options.parent.$store
   }
 }
 ```
 
-vuexInit执行时，this 指向当前 Vue 实例，所以 this.$options 获取的是当前 Vue 实例的 $options 属性的值，this.$options.store 就是实例化 Vue 时传入配置对象的store对象。
+vuexInit执行时，this 指向当前 Vue 实例，this.$options 获取的是当前 Vue 实例的$options对象。
 
-接下来 if 判断，如果 options.store 存在，我们只有在创建根Vue实例时，才会给配置对象传store对象，即如下所示：
+如果 this.$options.store 存在，说明实例化 Vue 时传入了store这个配置项。我们只有在创建Vue的根实例时，才会传入store对象，即如下：
 
 ```js
 new Vue({
@@ -103,13 +111,13 @@ new Vue({
 }).$mount('#app')
 ```
 
-if条件成立，说明当前this是根Vue实例，那么，给当前Vue实例添加$store属性，属性值为store对象（我们暂时不分析stroe为函数的情况）；如果当前不是根Vue实例，再判断如果它有父组件并且父组件有$store值，那么就给当前组件也添加$store属性，属性值为父组件的$store值。
+if条件成立，说明当前实例是根实例，给根实例添加$store属性，属性值为options.store()或options.store；如果当前不是根Vue实例，再判断，如果它有父组件，并且父组件有$store值，则也给当前组件添加$store属性，属性值为父组件的$store值。
 
-因此 vuexInit 做的事就是将 `new Vue()` 时传入的 `store` 对象保存到根实例的 `$store`，因为每个 Vue 组件的创建，执行 beforeCreate 钩子时会调用 vuexInit ，所有创建了的组件实例都添加了 `$store` 属性，属性值引用父组件的 `$store`，最后属性值都指向同一个 `store` 对象，即在任意组件中访问 this.$store 都能访问到根实例中注册的 store 对象。
+于是每一个Vue组件实例的创建，执行 beforeCreate 钩子时会调用 vuexInit，如果是根实例，就用$store属性保存 `new Vue()` 时传入的 `store` 对象，如果是子组件实例，也添加$store属性，属性值引用父组件的$store，最后所有组件实例的$store都指向同一个store对象。即在任意组件中都可以通过this.$store访问根实例中注册的store对象
 
 ## store 对象的创建
 
-由前面分析可知，根实例注册的 store 对象会向下注入。问题来了，这个 store 对象是怎么创建的？我们是这样创建的：
+可见，根实例注册的 store 对象会向下注入到子组件实例中。问题来了，这个 store 对象是怎么创建的？是这么创建的：
 
 ```js
 const store = new Vuex.Store({
@@ -121,9 +129,9 @@ const store = new Vuex.Store({
 })
 ```
 
-store 是通过 `new Vuex.Store()` 返回出的 Store 实例，Store 构造函数接收一个选项对象，包含actions、getters、state、mutations、modules等。
+Vuex默认导出的对象中有Store这个构造函数，对它的实例化返回出store这个实例。Store 构造函数接收一个选项对象，包含actions、getters、state、mutations、modules等。
 
-接下来我们看看 Store 这个构造函数，先看 `constructor` ，即构造函数本身。代码较长，我们拆分成几段来看：
+接下来我们看看 Store 这个构造函数。代码较长，我们拆分成几段来看：
 
 ```js
 class Store {
@@ -142,12 +150,14 @@ class Store {
 }
 ```
 
-首先作判断，如果 Vue 没有值，且当前是浏览器环境，且 window 上有 Vue ，说明没有调用过install，就传入 window.Vue 执行 install 方法，进行安装。
+首先作判断，如果 Vue 没有值，且当前是浏览器环境，且 window 上有 Vue ，说明没有调用过install，就传入 window.Vue 执行 install 方法，这是一种主动安装。
 
-然后是执行3个assert函数，对使用Vuex的必要条件做判断：
+然后是开发环境中，执行3个断言函数，判断是否具备使用Vuex的必要条件。
+
 assert函数是一个简单的断言函数的实现。
+
 ```js
-function assert (condition, msg) {
+export function assert (condition, msg) {
   if (!condition) throw new Error(`[vuex] ${msg}`)
 }
 ```
@@ -156,7 +166,7 @@ function assert (condition, msg) {
 3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误： Store 必须用 new 字符调用
 
 
-环境判断后，根据传入的options对象或默认值，初始化一些实例属性，代表store实例的内部状态：
+环境判断后，根据传入的options对象，初始化一些store实例的属性，代表内部状态：
 
 ```js
   const {
@@ -172,25 +182,31 @@ function assert (condition, msg) {
   this._modules = new ModuleCollection(options) // module收集器
   this._modulesNamespaceMap = Object.create(null) // 模块命名空间
   this._subscribers = [] // 存储所有对mutation变化的订阅者
-  this._watcherVM = new Vue() // Vue实例，用它的$watch来观测变化
+  this._watcherVM = new Vue() // Vue实例
+  this._makeLocalGettersCache = Object.create(null)
 ```
+strict模式默认为false，如果实例化Store时传了strict:true，进入严格模式，任何 mutation 处理函数以外修改 Vuex state 都会抛出错误。
 
-暂时我们不用管每个具体是什么含义，后面会明白的。初始化的重点是 `this._modules = new ModuleCollection(options)`，稍后会详细介绍。接下来继续看 constructor ：
+暂时我们不用管每个具体是什么含义。其中的重点是：
+
+ `this._modules = new ModuleCollection(options)`
+ 
+稍后会详细介绍。接下来继续看 constructor ：
 
 ```js
 const store = this
 const { dispatch, commit } = this
-this.dispatch = function boundDispatch(type, payload) {
+this.dispatch = function boundDispatch (type, payload) {
   return dispatch.call(store, type, payload)
 }
-this.commit = function boundCommit(type, payload, options) {
+this.commit = function boundCommit (type, payload, options) {
   return commit.call(store, type, payload, options)
 }
 ```
 
-首先定义 store 变量指向 store 实例。再解构出 Store 的原型上的 dispatch 、commit 方法，赋给了变量dispatch 、commit，接着给 store 实例添加dispatch和commit方法，方法执行分别返回 Store 的原型上的 dispatch 和 commit 方法的 call 调用，执行时的 this 指向当前 store 实例。
+首先定义 store 变量指向当前 store 实例。再解构出 Store 的原型上的 dispatch 、commit 方法，赋给了变量dispatch 、commit，接着给 store 实例添加dispatch和commit方法，方法执行分别返回 Store 的原型上的 dispatch 和 commit 方法的 call 调用，执行时的 this 指向当前 store 实例。
 
-现在 store 实例对象上就有了 dispatch 和 commit 两个方法，store调用它们时就不会访问原型上的对应方法了，起到替换的作用，具体它们做了什么，后面会讲。
+现在 store 实例对象上就有了 dispatch 和 commit 两个方法，store调用它们时就不会访问原型上的方法，具体它们做了什么，后面会讲。
 
 接着看 constructor
 
@@ -206,19 +222,18 @@ plugins.forEach(plugin => plugin(this))
 现在到了 Vuex 初始化的核心部分了，包括了：
 
 1. strict 是从options中解构出来的属性值，将它赋给 store实例的strict属性
-2. 由于this._modules = new ModuleCollection(options)，获取根state 对象赋给变量state
+2. 由于this._modules = new ModuleCollection(options)，获取根 state 对象赋给变量state
 3. 调用 installModule进行模块的注册，传入store实例，state，空数组和new Store时传入的选项对象。
 4. 调用resetStoreVM函数，进行state的响应式化处理
 5. 遍历plugins数组，进行插件的逐个注册
 
 上面这些我们不知道它具体的实现，只需先了解，后面会展开讲。所以到目前为止，constructor 的代码已经过了一遍。总结一下，Store 函数主要做了三件事：
 
-1. 初始化一些内部属性，其中重点是初始化 _module 属性
+1. 初始化一些内部属性，其中重点是 this._modules = new ModuleCollection(options)
 2. 执行installModule，安装模块
 3. 执行resetStoreVM ，使store响应式化
 
 我们将逐个细说这三个，先说初始化 _module 属性，也就是 module 的收集
-
 
 ### Module 收集
 
@@ -226,11 +241,11 @@ plugins.forEach(plugin => plugin(this))
 this._modules = new ModuleCollection(options)
 ```
 
-Vuex文档的原话这么说：
+Vuex文档里是这么说：
 
 > store 使用单一的状态树，用一个对象就包含了全部的应用层级的状态，每个应用将仅仅包含一个 store 实例。
 
-如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex引入了模块化，Vuex 允许我们将 store 切割成 module，每个模块都有自己的 state 、mutation、action、getter、甚至子模块，像下面这样从上至下进行分割：
+如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将 store 切割成 module，每个模块都有自己的 state 、mutation、action、getter、甚至子模块，像下面这样从上至下进行分割：
 
 ```js
 const moduleA = {
@@ -250,13 +265,13 @@ const store = new Vuex.Store({
     b: moduleB
   }
 })
-store.state.moduleA // -> moduleA 的状态
-store.state.moduleB // -> moduleB 的状态
+store.state.a // -> moduleA 的状态
+store.state.b // -> moduleB 的状态
 ```
 
-可以看到，module 的设计是一个树形结构，store 本身可以理解为一个根 module，下面是一些子 module。我们希望将用 options 配置对象描绘的这种树形关系，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集
+可以看到，module 的设计是一个用配置对象描述的树形结构，store 本身可以理解为一个根 module，下面是一些子 module。我们希望将这种树形关系，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集
 
-我们看看 `ModuleCollection` 这个构造函数：
+这是通过new ModuleCollection实现，我们看看 `ModuleCollection` 这个构造函数：
 
 ```js
 class ModuleCollection {
@@ -266,26 +281,28 @@ class ModuleCollection {
   register (path, rawModule, runtime = true) {
     // ...
   }
-  // ...一些原型方法
+  // ...
 }
 ```
-我们发现，new ModuleCollection(options) 时，就是执行register，`this.register([], rawRootModule, false)`
+new ModuleCollection(options) 就是执行register原型方法
 
 我们看看 register 这个函数：
 
 ```js
 register (path, rawModule, runtime = true) {
-
-  assertRawModule(path, rawModule)
+  if (process.env.NODE_ENV !== 'production') {
+    assertRawModule(path, rawModule)
+  }
 
   const newModule = new Module(rawModule, runtime)
-  if (path.length === 0) { // 如果path是空数组，说明是 根 模块
+  if (path.length === 0) {
     this.root = newModule
   } else {
     const parent = this.get(path.slice(0, -1))
     parent.addChild(path[path.length - 1], newModule)
   }
-  // register 嵌套的子模块
+
+  // register nested modules
   if (rawModule.modules) {
     forEachValue(rawModule.modules, (rawChildModule, key) => {
       this.register(path.concat(key), rawChildModule, runtime)
@@ -293,29 +310,30 @@ register (path, rawModule, runtime = true) {
   }
 }
 ```
+register 方法，它接收3个参数：
 
-register 方法，它接收3个参数,：
-
-1. path，是module的key组成的数组，形似路径，所以叫path，它区分了不同的module。比如前面的例子，根 store 对象被视为根module，它的path为[]，它的子模块 moduleA 的 path 是 ['a'] ，moduleB 的 path 是 ['b'] ，如果它们有嵌套的子模块，则子模块的 path 就大致形如 ['a','a1'] 、['a','a2'] 、['b','b1']
-2. rawModule，是定义当前 module 的options对象，后面我们统一称它为配置对象。当前的配置对象未经加工（raw），还不具有模块的功能，像 rawRootModule 就是实例化 Store 时传入的 options，我们把它看作根module的配置对象。
+1. path，是module的key组成的数组，作为唯一的路径，区分了不同的module。比如根 store 对象被视为根module，它的path为[]，它的子模块 moduleA 的 path 是 ['a'] ，子模块 moduleB 的 path 是 ['b'] ，如果它们有嵌套的子模块，则它们的 path 就大致形如 ['a','a1'] 、['a','a2'] 、['b','b1']
+2. rawModule，是定义当前 module 的options对象，后面我们统一称它为配置对象。像 rawRootModule 就是实例化 Store 时传入的 options，我们把它看作根module的配置对象。
 3. runtime 表示是否是一个运行时创建的 module，默认为 true。
 
 ```js
 this.register([], rawRootModule, false)
 ```
 
-因此在首次调用register时，第一个参数传入[]，这是注册根module。rawRootModule是实例化Store时传入的options对象。
+new ModuleCollection(options)时，首次调用register，第一个参数传入[]，说明这是注册根module。rawRootModule是实例化Store时传入的options对象。
 
 我们具体分段看register的内部：
 
 ```js
   assertRawModule(path, rawModule)
+  const newModule = new Module(rawModule, runtime)
 ```
 
 首先调用 assertRawModule 对 module 作一些判断，遍历 module 内部的 getters、mutations、actions 是否符合要求，这里不作具体分析。
 
+然后根据当前的配置对象，创建一个Module实例，赋给变量 newModule，我们稍后会分析Module构造函数，它其实就是实现了将未加工的module配置对象转成真正的Module实例。
+
 ```js
-const newModule = new Module(rawModule, runtime)
 if (path.length === 0) {
   this.root = newModule
 } else {
@@ -324,11 +342,11 @@ if (path.length === 0) {
 }
 ```
 
-然后通过new Module传入当前的配置对象，创建一个 Module 实例，赋给变量 newModule，我们稍后会分析Module构造函数，它其实就是实现了将未加工的module配置对象转成真正的Module实例。
+如果path是空数组，即当前注册的module是根module，把刚刚创建的根 Module 实例赋给 this.root，即 ModuleCollection 的实例的root属性保存了根module对象。
 
-if判断如果 path 不是空数组，执行else的部分，后面会分析到，如果是根module的注册，path是空数组，会进入if语句块，我们把刚刚创建的 Module 实例赋给 this.root，即 ModuleCollection 的实例的root属性。
+实例Store时，往Store实例挂载了_modules，属性值为ModuleCollection的实例，因此Store实例的 this._modules.root 保存了根module对象。
 
-前面提到：`this._modules = new ModuleCollection(options)` Store实例的_modules属性保存了 ModuleCollection 的实例，因此 this._modules.root 能取到实例化Store时传入的根配置对象options。
+当path不是空数组，即当前注册的是子module，稍后讲解。
 
 接下来是的register的最后一段：
 
@@ -339,32 +357,32 @@ if (rawModule.modules) {
   })
 }
 ```
-我们知道 module 可以嵌套自己的子模块，所以，注册当前模块的同时，也要对子模块进行注册，因此要递归调用register
+我们知道 module 可以嵌套自己的子模块，所以，注册当前模块的同时，也要对子模块进行注册，因此递归调用register
 
-if 判断传入的配置对象 rawModule 是否有 modules，如果有，则调用forEachValue，我们快速看一眼 forEachValue 这个辅助函数：
+if 判断，如果当前配置对象 rawModule 有modules，则调用forEachValue遍历modules，我们看看 forEachValue 函数：
 
 ```js
-forEachValue (obj, fn) {
+export function forEachValue (obj, fn) {
   Object.keys(obj).forEach(key => fn(obj[key], key))
 }
 ```
 
-forEachValue 函数接收对象obj和回调函数fn，遍历 obj 中的 key，对每个键值对对执行fn。
+forEachValue 函数接收对象obj和回调函数fn，遍历 obj 的自有属性key，逐个调用fn。
 
-因此，如果当前模块存在子模块，遍历 rawModule.modules 里的每个键值对，逐个执行回调函数，回调函数接收子模块配置对象rawChildModule和子模块配置对象的key名，在回调函数中调用register函数，对子模块进行注册。
+因此，如果当前模块rawModule存在子模块modules，遍历 rawModule.modules 里的每个键值对，回调函数传入子模块配置对象rawChildModule和子模块配置对象的key名，执行，在回调函数中调用register函数，对子模块进行注册。
 
-注意到，传入register的path是 `path.concat(key)` 。将当前遍历的key追加到当前 path 数组末尾，代表了当前子模块的路径。举例来说，假如模块a嵌套了模块b，b模块嵌套了模块c，那模块c的path就是 ['a','b'].concat('c')，即['a','b','c']
+传入register的path是 `path.concat(key)` 。将当前遍历的key追加到当前 path 数组末尾，代表当前子模块的路径。比如模块a嵌套了模块b，b模块嵌套了模块c，那模块c的path就是 ['a','b'].concat('c')，即['a','b','c']
 
 传入register的第二个参数rawChildModule，是当前遍历的value值，即子模块的配置对象。
 
-所以，调用register注册完根module后，如果还有第二次调用 register，那此时注册的module就是它的子模块，path不是空数组了，执行 else 语句块:
+可见，实例化Store必然会实例化MoudleCollection，必然调用一次register，注册根module，如果根配置对象有嵌套的modules，则会继续调用 register，注册的是子module。path不是空数组了，回到那个 else 语句块:
 
 ```js
  const parent = this.get(path.slice(0, -1))
  parent.addChild(path[path.length - 1], newModule)
 ```
 
-path是当前子模块的路径，那 path.slice(0, -1) 是什么，它获取除去最后一项的当前path数组，它代表当前模块的父模块的path。传入get方法执行，目的是为了拿到该当前子模块的父module对象，我们看看get做了什么：
+path是当前子模块的路径，那 path.slice(0, -1) 是什么，即除去最后一项的当前path数组，它代表当前模块的父模块的path。传入get方法执行，目的是为了获取该当前子模块的父module对象，我们看看get做了什么：
 
 ```js
 get (path) {
@@ -374,9 +392,9 @@ get (path) {
 }
 ```
 
-这里不再赘述 reduce 的用法，具体可以参考 [MDN:reduce](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/Reduce)的解释。
+reduce 的详细用法可以参考 [reduce - MDN](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/Reduce)
 
-get方法是 ModuleCollection 的原型方法，我们先快速看一眼 getChild 和 addChild 的实现，再回来理解get。
+get方法是 ModuleCollection 的原型方法，我们先看一下 getChild 和 addChild 的实现，再回来理解get。
 
 ```js
 getChild (key) {
@@ -387,7 +405,9 @@ addChild (key, module) {
 }
 ```
 
-getChild 和 addChild 是Module构造函数的原型方法，getChild方法返回的是this._children[key]，即当前module的子模块key对应的module对象，addChild方法是给当前module对象的_children属性，添加子模块对象。我们后面在讲Module构造函数时会讲_children这个实例属性，不过你现在可以看出这种父子模块的关系是靠_children属性建立的。
+getChild 和 addChild 是Module的原型方法，getChild方法返回的是this._children[key]，即key所对应的，当前module的子module对象，我们讲到 Module 这个构造函数时会讲_children这个属性。
+
+addChild方法是给当前module对象的_children属性，添加子模块对象。你可以看到父子module的关系是靠_children属性建立的。
 
 回到 ModuleCollection 的原型方法get
 
@@ -398,11 +418,11 @@ get (path) {
   }, this.root)
 }
 ```
-为了方便理解，我们假设一种情况，传入get的 path 为 ['a','b','c']
+为了方便理解，假设传入get的 path 为['a','b','c']
 
-reduce 累加器的初始值为 this.root，是根module对象，第一次迭代执行回调返回的是：根模块下的key为'a'的子模块对象，并且该值作为下一次迭代的累加器的值，即回调函数的第一个参数module，第二次迭代执行又返回：'a'模块下的子模块'b'的模块对象，以此类推，最后get函数返回 path 为 ['a','b','c'] 对应的模块，而它是当前模块的父模块。
+reduce 累加器的初始值为 this.root，是根module对象，第一次迭代执行回调返回的是：根模块下的key为'a'的子模块对象，并且该值作为下一次迭代的累加器的值，即回调函数的第一个参数module，第二次迭代执行返回'a'模块下的子模块'b'的模块对象，以此类推，最后get函数返回 path 为 ['a','b','c'] 对应的模块。
 
-path的描述形式是数组，而get函数，利用数组的reduce方法一层层解析去找到对应的父模块对象。
+path的描述形式是数组，get函数，利用数组的reduce方法一层层解析去找到对应的父模块对象。
 
 我们拿到当前模块的父模块对象后，调用addChild方法，给父模块对象的_children属性，添加子模块对象。
 
@@ -413,14 +433,14 @@ path的描述形式是数组，而get函数，利用数组的reduce方法一层�
 
 可以看到，键值对的 key 为 path数组最后一项，作为当前模块的名称，val 为 当前模块对象。
 
-这其实通过 _children 属性，建立了父模块对象和子模块对象之间的父子关系，而且这种联系是基于 Module 实例的层面的，不是基于未加工的options配置对象层面的父子关系。我们后面会具体谈 Module 构造函数，以及它的实例属性_children。
+这其实通过 _children 属性，建立了父模块对象和子模块对象之间的父子关系，这种联系是基于 Module 实例的层面的，不是基于未加工的配置对象层面的。我们后面会具体谈 Module 构造函数，以及它的实例属性_children。
 
 我们再整体梳理一下 register方法：
 
 ```js
 register (path, rawModule, runtime = true) {
   const newModule = new Module(rawModule, runtime)
-  if (path.length === 0) { // 如果path是空数组，说明是 根 模块
+  if (path.length === 0) {
     this.root = newModule
   } else {
     const parent = this.get(path.slice(0, -1))
@@ -434,17 +454,13 @@ register (path, rawModule, runtime = true) {
 }
 ```
 
-首先 register方法肯定会至少调用一次的，在实例化Store的时候，调用了new ModuleCollection，进而执行this.register([], rawRootModule, false)。也就是，根配置对象一定会被注册为根module对象的，然后只要你设置了子模块，register就会被递归调用，去注册每一个子模块，并且保证每一个子模块都通过 path 去找到自己的父模块对象，然后通过 addChild 建立父子关系，然后再看自己有没有嵌套了子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
+首先 register方法肯定会至少调用一次的，在实例化Store的时候，调用了new ModuleCollection，执行this.register([], rawRootModule, false)。根配置对象一定会被注册为根module对象，只要你配置了嵌套模块，register就会被递归调用，去注册每一个子模块，并且保证每一个子模块都通过 path 去找到自己的父模块对象，然后通过 addChild 建立父子关系，然后再看自己有没有嵌套了子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
 
-我们所提到的module对象，模块对象，都是指的是 Module 的实例，在register方法中，上来也会创建Module实例，将raw的配置对象转成Module实例对象。那我们接下来看看Module构造函数：
-
-```js
-const newModule = new Module(rawModule, runtime)
-```
+我们所说的module对象，模块对象，都指的是 Module 的实例。我们看看Module构造函数
 
 ## Module 构造函数
 
-Vuex 的设计者将用户定义的 module 配置对象称为 rawModule ，未经加工的配置对象，传入 new Moudle 执行之后，实现了从 rawModule 到 newModule 的转变。我们先看 constructor。
+Vuex 的设计者将用户定义的 module 配置对象称为 rawModule ，未经加工的配置对象，传入 new Moudle 执行之后，实现了从 rawModule 到 module 对象的转变。我们先看 constructor。
 
 ```js
 class Module {
@@ -455,20 +471,20 @@ class Module {
     const rawState = rawModule.state
     this.state = (typeof rawState === 'function' ? rawState() : rawState) || {}
   }
-  // ...原型方法暂时省略
+  // ...原型方法
 }
 ```
 
-constructor中，它会初始化一些实例属性：比如 _children 属性，属性值为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 。
+Module的实例会挂载一些属性：比如 _children，属性值为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 对象。
 
-此外，Module 有很多原型方法，我们暂时不作一一介绍。
+此外，Module有很多原型方法，我们暂时不作一一介绍。
 
 现在我们回过头，梳理整个 new ModuleCollection 的过程（也就是register的执行）。包含了两件事：
 
 1. 由 rawModule 配置对象 通过new Module 构建出 module 对象
 2. 通过调用 register 结合递归，建立父子 module 对象之间的父子联系
 
-new Module 是在 new ModuleCollection 的过程中发生的，你要先生成了模块对象，才会进行模块对象的收集不是。
+new Module 是在 new ModuleCollection 的过程中发生的，先生成了模块对象，再进行模块对象的收集。
 
 ### installModule
 
@@ -491,7 +507,7 @@ function installModule(store, rootState, path, module, hot) {
     }
     store._modulesNamespaceMap[namespace] = module
   }
-  // set state
+
   if (!isRoot && !hot) { // 不为根且非热更新
     const parentState = getNestedState(rootState, path.slice(0, -1)) // 获取父级的state
     const moduleName = path[path.length - 1] // module的name
@@ -558,22 +574,23 @@ function installModule(store, rootState, path, module, hot) {
   // 
 }
 ```
-store 是 Store实例，发现installModule的调用传的都是new Vuex.Store创建的那个store对象。rootState是根state对象，path 是 当前的模块对应的路径数组，module 是当前模块对象，hot 代表是否支持热重载（这里不讨论它）
+store 是 Store实例，就是new Vuex.Store时传入的store对象。rootState是根state对象，path是当前的模块对应的路径数组，module 是当前模块对象，hot代表是否支持热重载（这里不讨论它）
 
 installModule 代码较长，我们分段来看
 
 ```js
 const isRoot = !path.length
 const namespace = store._modules.getNamespace(path)
+
 if (module.namespaced) {
-  if (store._modulesNamespaceMap[namespace]) {
+  if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
     console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
   }
   store._modulesNamespaceMap[namespace] = module
 }
 ```
 
-首先，使用isRoot变量来标识当前模块是否为根模块，接着，调用 getNamespace 函数传入path，拿到当前module的namespace值。我们看看getNamespace这个ModuleCollection的原型方法。
+首先，使用isRoot变量来标识当前模块是否为根模块，接着，调用 ModuleCollection的原型方法 getNamespace 函数传入path，拿到当前module的namespace值。我们看看getNamespace这个方法。
 
 ```js
 getNamespace (path) {
@@ -585,11 +602,19 @@ getNamespace (path) {
 }
 ```
 
-getNamespace 先获取到根module对象，然后通过path调用reduce方法，再沿着path，每次迭代获取到子模块对象module，查看module.namespaced，如果为真，就将上一次执行回调的返回值拼接上当前的key字符串和'/'，否则拼接''，累加器初始值为''。
+getNamespace 首先获取到根module对象，然后调用path的reduce方法，沿着path，每次迭代获取到子模块对象module，如果module.namespaced存在，就将上一次执行回调的返回值(类加值)拼上当前的key字符串和'/'，否则拼接''，累加器初始值为''。
 
 通过这样的方式就返回出当前模块的 namespace 字符串。我们称它为命名空间。
 
-接下来，if判断store._modulesNamespaceMap[namespace]是否存在，即，store对象上的实例属性_modulesNamespaceMap这个对象是否存有该命名空间，如果有了，就报错提示说命名空间的名称重复了，如果没有，就将命名空间和它对应的模块对象作为键值对添加到_modulesNamespaceMap对象中。
+```js
+if (module.namespaced) {
+  if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
+    console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
+  }
+  store._modulesNamespaceMap[namespace] = module
+}
+```
+如果当前模块使用了命名空间，再判断，如果store对象的属性_modulesNamespaceMap，这个对象中是否存在该命名空间，如果有，则报错提示：命名空间的名称重复了，如果没有，则将命名空间和它对应的模块对象，作为键值对添加到_modulesNamespaceMap对象中
 
 继续看installModule的代码：
 
@@ -601,30 +626,40 @@ if (!isRoot && !hot) { // 不为根且非热更新
     Vue.set(parentState, moduleName, module.state)
   })
 }
+if (!isRoot && !hot) {
+  const parentState = getNestedState(rootState, path.slice(0, -1))
+  const moduleName = path[path.length - 1]
+  store._withCommit(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      if (moduleName in parentState) {
+        console.warn(
+          `[vuex] state field "${moduleName}" was overridden by a module with the same name at "${path.join('.')}"`
+        )
+      }
+    }
+    Vue.set(parentState, moduleName, module.state)
+  })
+}
 ```
+如果当前模块不是根模块，且非热更新，执行if语句块。
 
-首先，调用getNestedState函数，传入根state和path.slice(0, -1)，后者是父模块的path
+首先，根据根state和父模块的path，通过调用getNestedState函数，获取当前模块的父state
+
 我们快速看一看 getNestedState 的实现：
 
 ```js
 function getNestedState (state, path) {
-  return path.length
-    ? path.reduce((state, key) => state[key], state)
-    : state
+  return path.reduce((state, key) => state[key], state)
 }
 ```
 
-我们再次看到reduce的应用，path调用reduce，累加器的初始值为根state，每次迭代返回出它的子模块的state，沿着path路径，一个个往下获取，直到获取到当前state的父state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
+父模块的path调用reduce，累加器的初始值为根state，每次迭代返回出它的子模块的state，沿着path路径，一个个往下获取，直到获取到当前state的父state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
 
-` const moduleName = path[path.length - 1]` 获取到当前模块的key名，赋给moduleName
+`const moduleName = path[path.length - 1]` 获取到当前模块的key名，赋给moduleName
 
 接着调用了Store的原型方法_withCommit，我们先看看_withCommit这个Store的原型方法
 
 ```js
-store._withCommit(() => { 
-  Vue.set(parentState, moduleName, module.state)
-})
-
 _withCommit (fn) {
   const committing = this._committing
   this._committing = true
@@ -633,10 +668,11 @@ _withCommit (fn) {
 }
 ```
 
-_withCommit接收一个函数fn，首先把当前store的_committing置为true，代表正在提交mutation中，然后执行fn，再把 _committing属性值恢复到原来的值。
+_withCommit接收一个函数fn，首先把当前store的_committing置为true，然后执行fn，再把 _committing属性值恢复到原来的值。
 
-store._withCommit执行，_committing置为true，然后执行 `Vue.set(parentState, moduleName, module.state)`
-也就是说，Vue.set执行时，_committing这个标志位是true，此时我不希望有mutation执行。（我暂时这么理解，不太确定）
+store._withCommit执行，首先_committing置为true，然后在开发环境中判断，如果当前模块的key名(假定叫value)，和父模块(假定模块名叫a)的state对象中的value冲突，比如，会有这样的问题：当你想获取父模块的state的value属性值时，store.state.a.value，你拿到的却是当前这个子模块value的配置对象，即父模块的state的这个属性被覆盖了，所以要报错提示。
+
+然后执行 `Vue.set(parentState, moduleName, module.state)`，它是修改state的一种内部的合法行为，这个过程_committing为true。所有合法的修改state的操作发生时，都让_committing为true，其他时刻都为false，因此任何非法修改state的动作都会报错警告："do not mutate vuex store state outside mutation handlers."
 
 Vue.set本身是Vue暴露的api，给根state对象添加响应式的子state，响应式属性为模块名，属性值为模块的state。
 
