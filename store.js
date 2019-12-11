@@ -385,11 +385,9 @@ function makeLocalContext (store, namespace, path) {
           return
         }
       }
-
       store.commit(type, payload, options)
     }
   }
-
   // getters and state object must be gotten lazily
   // because they will be changed by vm update
   Object.defineProperties(local, {
