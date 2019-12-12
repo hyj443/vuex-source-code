@@ -12,7 +12,7 @@ state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需�
 
 ## Vuex的安装
 
-Vuex 是 Vue 插件，在使用Vuex前，你必须通过 Vue.use() 来安装 Vuex，并且需要调用 new Vue() 启动应用之前：
+Vuex 是 Vue 插件，在使用Vuex前，必须通过 Vue.use() 来安装 Vuex，并且需要在调用 new Vue() 之前调用：
 
 ```js
 import Vue from 'vue';
@@ -23,10 +23,9 @@ new Vue({
   // ...组件选项
 })
 ```
-
 >Vue.use(plugin) 用来安装Vue插件
 >如果插件是一个对象，它必须提供 install 方法。如果插件是一个函数，则它被作为 install 方法。install 接收的第一个参数就是 Vue 对象
->Vue.use 需要在调用 new Vue() 之前被调用。
+>Vue.use 需要在调用 new Vue() 之前被调用
 
 src\index.js 入口文件中，Vuex 导出默认对象中有 install 方法：
 
@@ -60,27 +59,25 @@ export function install (_Vue) {
 }
 ```
 
-如果是首次安装Vuex，Vue不存在，if语句块不执行，install接收的Vue构造函数赋给Vue。如果再次调用install，Vue已经有值，且和传入的Vue全等，则开发环境下会打印警告：“Vuex已经安装了，Vue.use(Vuex)只能调用一次”，然后直接返回，避免了Vuex插件的重复install。
+如果是初次调用install，Vue不存在，if语句块不执行，install接收的_Vue，即Vue构造函数，赋给Vue。如果再次调用install，Vue已经有值，且和传入的_Vue全等，则开发环境下会打印警告：“Vuex已经安装了，Vue.use(Vuex)只能调用一次”，然后直接返回，避免了Vuex插件的重复安装。
 
 然后调用applyMixin(Vue)，我们看看 src\mixin.js 中的 applyMixin 函数：
 
 ```js
 export default function (Vue) {
   const version = Number(Vue.version.split('.')[0])
-
   if (version >= 2) {
     Vue.mixin({ beforeCreate: vuexInit })
   } else {
     // Vue 1.x 的处理，不做分析
   }
-
   function vuexInit () {
     // store 注入
   }
 }
 ``` 
 
-在 applyMixin 中，如果Vue的版本是2.x，调用Vue.mixin，混入一个beforeCreate钩子为vuexInit。Vue.mixin的作用是：全局注册一个混入，会影响之后创建的每个 Vue 实例。
+真正的install是在 applyMixin 中，如果Vue的版本是2.x，调用Vue.mixin，混入一个beforeCreate钩子：vuexInit。Vue.mixin的作用是：全局注册一个混入，会影响之后创建的每个 Vue 实例。
 
 这意味着，install之后，创建的每个Vue实例的执行beforeCreate钩子函数时，都会执行vuexInit。
 
@@ -111,13 +108,13 @@ new Vue({
 }).$mount('#app')
 ```
 
-if条件成立，说明当前实例是根实例，给根实例添加$store属性，属性值为options.store()或options.store；如果当前不是根Vue实例，再判断，如果它有父组件，并且父组件有$store值，则也给当前组件添加$store属性，属性值为父组件的$store值。
+所以如果 this.$options.store 存在，说明当前实例是根实例，给根实例添加$store属性，属性值为options.store()或options.store；如果当前不是根Vue实例，再判断，如果它有父实例，并且父实例有$store值，则也给当前实例添加$store属性，属性值为父组件的$store值。
 
-于是每一个Vue组件实例的创建，执行 beforeCreate 钩子时会调用 vuexInit，如果是根实例，就用$store属性保存 `new Vue()` 时传入的 `store` 对象，如果是子组件实例，也添加$store属性，属性值引用父组件的$store，最后所有组件实例的$store都指向同一个store对象。即在任意组件中都可以通过this.$store访问根实例中注册的store对象
+所以 applyMixin 让每一个Vue组件实例的创建，执行到 beforeCreate 钩子时都会调用 vuexInit，并且，所有Vue组件实例的$store属性都指向同一个store对象，即在任意组件中都可以通过this.$store访问根实例中注册的store对象
 
 ## store 对象的创建
 
-可见，根实例注册的 store 对象会向下注入到子组件实例中。问题来了，这个 store 对象是怎么创建的？是这么创建的：
+可见，根实例注册的 store 对象会向下注入到子组件实例中。问题来了，这个 store 对象是怎么创建的
 
 ```js
 const store = new Vuex.Store({
@@ -129,7 +126,7 @@ const store = new Vuex.Store({
 })
 ```
 
-Vuex默认导出的对象中有Store这个构造函数，对它的实例化返回出store这个实例。Store 构造函数接收一个选项对象，包含actions、getters、state、mutations、modules等。
+Vuex默认导出的对象中有Store这个构造函数，对它的实例化返回出store实例。Store构造函数接收一个选项对象，包含actions、getters、state、mutations、modules等。
 
 接下来我们看看 Store 这个构造函数。代码较长，我们拆分成几段来看：
 
@@ -150,7 +147,7 @@ class Store {
 }
 ```
 
-首先作判断，如果 Vue 没有值，且当前是浏览器环境，且 window 上有 Vue ，说明没有调用过install，就传入 window.Vue 执行 install 方法，这是一种主动安装。
+首先判断，如果 Vue 没有值，且当前是浏览器环境，且 window 上有 Vue ，说明没有调用过install，就传入 window.Vue 执行 install 方法，这是一种属于Vuex的主动安装。
 
 然后是开发环境中，执行3个断言函数，判断是否具备使用Vuex的必要条件。
 
@@ -161,19 +158,15 @@ export function assert (condition, msg) {
   if (!condition) throw new Error(`[vuex] ${msg}`)
 }
 ```
-1. 如果Vue没有值，抛出错误：实例化 Store 之前必须调用Vue.use(Vuex)，因为后面会用到 Vue
+
+1. 如果Vue没有值，抛出错误：实例化 Store 之前必须调用Vue.use(Vuex)，这样Vue变量才能是Vue构造函数，后面会用到
 2. 如果Promise不能用，也会抛出错误：Vuex 依赖 Promise。
 3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误： Store 必须用 new 字符调用
 
-
-环境判断后，根据传入的options对象，初始化一些store实例的属性，代表内部状态：
+环境判断后，初始化一些store实例的属性，代表内部状态：
 
 ```js
-const {
-  plugins = [],
-  strict = false
-} = options
-
+const { plugins = [], strict = false } = options
 this._committing = false // 提交mutation状态的标志
 this._actions = Object.create(null) // 存放actions
 this._actionSubscribers = [] // action 订阅函数集合
@@ -185,6 +178,7 @@ this._subscribers = [] // 存储所有对mutation变化的订阅者
 this._watcherVM = new Vue() // Vue实例
 this._makeLocalGettersCache = Object.create(null)//存放生成的本地getters的缓存
 ```
+
 strict模式默认为false，如果实例化Store时传了strict:true，进入严格模式，任何 mutation 处理函数以外修改 Vuex state 都会抛出错误。
 
 暂时我们不用管每个具体是什么含义。其中的重点是：
@@ -204,7 +198,7 @@ this.commit = function boundCommit (type, payload, options) {
 }
 ```
 
-首先定义 store 变量指向当前 store 实例。再解构出 Store 的原型上的 dispatch 、commit 方法，赋给了变量dispatch 、commit，接着给 store 实例添加dispatch和commit方法，方法执行分别返回 Store 的原型上的 dispatch 和 commit 方法的 call 调用，执行时的 this 指向当前 store 实例。
+首先定义 store 变量指向当前 store 实例。再解构出 Store 的原型上的 dispatch 、commit 方法，赋给了变量dispatch、commit，接着给 store 实例添加dispatch和commit方法，它们分别相当于指定了this为当前store实例的dispatch和commit原型方法。
 
 现在 store 实例对象上就有了 dispatch 和 commit 两个方法，store调用它们时就不会访问原型上的方法，具体它们做了什么，后面会讲。
 
@@ -269,7 +263,7 @@ store.state.a // -> moduleA 的状态
 store.state.b // -> moduleB 的状态
 ```
 
-可以看到，module 的设计是一个用配置对象描述的树形结构，store 本身可以理解为一个根 module，下面是一些子 module。我们希望将这种树形关系，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集
+可以看到，module的设计是一个用配置对象描述的树形结构，store 本身可以理解为一个根 module，下面是一些子 module。我们希望将这种树形关系，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集
 
 这是通过new ModuleCollection实现，我们看看 `ModuleCollection` 这个构造函数：
 
@@ -313,14 +307,14 @@ register (path, rawModule, runtime = true) {
 register 方法，它接收3个参数：
 
 1. path，是module的key组成的数组，作为唯一的路径，区分了不同的module。比如根 store 对象被视为根module，它的path为[]，它的子模块 moduleA 的 path 是 ['a'] ，子模块 moduleB 的 path 是 ['b'] ，如果它们有嵌套的子模块，则它们的 path 就大致形如 ['a','a1'] 、['a','a2'] 、['b','b1']
-2. rawModule，是定义当前 module 的options对象，后面我们统一称它为配置对象。像 rawRootModule 就是实例化 Store 时传入的 options，我们把它看作根module的配置对象。
+2. rawModule，是定义当前 module 的options对象，后面我们统一称它为配置对象。像 rawRootModule 就是实例化 Store 时传入的配置镀锡，我们把它看作根module的配置对象。
 3. runtime 表示是否是一个运行时创建的 module，默认为 true。
 
 ```js
 this.register([], rawRootModule, false)
 ```
 
-new ModuleCollection(options)时，首次调用register，第一个参数传入[]，说明这是注册根module。rawRootModule是实例化Store时传入的options对象。
+new ModuleCollection(options)时，首次调用register，第一个参数传入[]，说明这是注册根module。rawRootModule是实例化Store时传入的配置对象。
 
 我们具体分段看register的内部：
 
@@ -329,9 +323,9 @@ new ModuleCollection(options)时，首次调用register，第一个参数传入[
   const newModule = new Module(rawModule, runtime)
 ```
 
-首先调用 assertRawModule 对 module 作一些判断，遍历 module 内部的 getters、mutations、actions 是否符合要求，这里不作具体分析。
+首先调用 assertRawModule 对 module 的配置对象作一些判断，遍历用户传的配置对象中的 getters、mutations、actions 是否符合要求，这里不作具体分析。
 
-然后根据当前的配置对象，创建一个Module实例，赋给变量 newModule，我们稍后会分析Module构造函数，它其实就是实现了将未加工的module配置对象转成真正的Module实例。
+然后根据当前的配置对象，创建一个Module实例，赋给变量 newModule。
 
 ```js
 if (path.length === 0) {
@@ -344,9 +338,9 @@ if (path.length === 0) {
 
 如果path是空数组，即当前注册的module是根module，把刚刚创建的根 Module 实例赋给 this.root，即 ModuleCollection 的实例的root属性保存了根module对象。
 
-实例Store时，往Store实例挂载了_modules，属性值为ModuleCollection的实例，因此Store实例的 this._modules.root 保存了根module对象。
+store实例上有_modules属性，指向ModuleCollection实例，ModuleCollection实例有root属性，指向根module对象
 
-当path不是空数组，即当前注册的是子module，稍后讲解。
+当path不是空数组，即当前register函数注册的是子module，稍后讲解。
 
 接下来是的register的最后一段：
 
@@ -357,7 +351,7 @@ if (rawModule.modules) {
   })
 }
 ```
-我们知道 module 可以嵌套自己的子模块，所以，注册当前模块的同时，也要对子模块进行注册，因此递归调用register
+我们知道配置对象中module可以嵌套自己的子module，所以，注册当前模块时，也要递归注册子模块，即递归调用register。
 
 if 判断，如果当前配置对象 rawModule 有modules，则调用forEachValue遍历modules，我们看看 forEachValue 函数：
 
@@ -369,20 +363,22 @@ export function forEachValue (obj, fn) {
 
 forEachValue 函数接收对象obj和回调函数fn，遍历 obj 的自有属性key，逐个调用fn。
 
-因此，如果当前模块rawModule存在子模块modules，遍历 rawModule.modules 里的每个键值对，回调函数传入子模块配置对象rawChildModule和子模块配置对象的key名，执行，在回调函数中调用register函数，对子模块进行注册。
+因此，如果当前模块rawModule存在子模块modules，遍历 rawModule.modules 里的每个key，执行回调fn，传入obj[key]和key，即子模块的配置对象、和子模块配置对象的key名。在fn中调用register函数，对子模块进行注册。
 
-传入register的path是 `path.concat(key)` 。将当前遍历的key追加到当前 path 数组末尾，代表当前子模块的路径。比如模块a嵌套了模块b，b模块嵌套了模块c，那模块c的path就是 ['a','b'].concat('c')，即['a','b','c']
+传入register的path是 `path.concat(key)` 。当前的path是当前注册的模块的路径，concat上当前遍历的key，就代表着它的子模块的路径path。
+
+比如模块a嵌套了模块b，模块b嵌套了模块c，那模块c的path就是：['a','b'].concat('c')，即['a','b','c']
 
 传入register的第二个参数rawChildModule，是当前遍历的value值，即子模块的配置对象。
 
-可见，实例化Store必然会实例化MoudleCollection，必然调用一次register，注册根module，如果根配置对象有嵌套的modules，则会继续调用 register，注册的是子module。path不是空数组了，回到那个 else 语句块:
+可见，实例化Store必然会实例化MoudleCollection，进行module的收集，必然至少调用一次register，注册根module，如果根配置对象有嵌套的modules，则会继续调用 register，注册子module。在register中，如果path不是空数组，进入那个 else 语句块:
 
 ```js
  const parent = this.get(path.slice(0, -1))
  parent.addChild(path[path.length - 1], newModule)
 ```
 
-path是当前子模块的路径，那 path.slice(0, -1) 是什么，即除去最后一项的当前path数组，它代表当前模块的父模块的path。传入get方法执行，目的是为了获取该当前子模块的父module对象，我们看看get做了什么：
+path是当前子模块的路径，path.slice(0, -1) 是截去最后一项的数组，它代表当前模块的父模块的path。传入get方法执行，目的是为了获取该当前子模块的父module对象，我们看看get方法：
 
 ```js
 get (path) {
@@ -422,7 +418,7 @@ get (path) {
 
 reduce 累加器的初始值为 this.root，是根module对象，第一次迭代执行回调返回的是：根模块下的key为'a'的子模块对象，并且该值作为下一次迭代的累加器的值，即回调函数的第一个参数module，第二次迭代执行返回'a'模块下的子模块'b'的模块对象，以此类推，最后get函数返回 path 为 ['a','b','c'] 对应的模块。
 
-path的描述形式是数组，get函数，利用数组的reduce方法一层层解析去找到对应的父模块对象。
+所以get方法是根据path数组，通过数组的reduce迭代。返回出path对应的module对象。
 
 我们拿到当前模块的父模块对象后，调用addChild方法，给父模块对象的_children属性，添加子模块对象。
 
@@ -431,9 +427,9 @@ path的描述形式是数组，get函数，利用数组的reduce方法一层层�
  parent.addChild(path[path.length - 1], newModule)
 ```
 
-可以看到，键值对的 key 为 path数组最后一项，作为当前模块的名称，val 为 当前模块对象。
+path数组的最后一项，就是当前模块的名称，newModule为当前模块对象，将它们作为键值对添加到父模块对象的_children属性(对象)中
 
-这其实通过 _children 属性，建立了父模块对象和子模块对象之间的父子关系，这种联系是基于 Module 实例的层面的，不是基于未加工的配置对象层面的。我们后面会具体谈 Module 构造函数，以及它的实例属性_children。
+通过 _children 属性，建立了父模块对象和子模块对象之间的父子关系，这种联系是基于 Module 实例的层面的，不是基于未加工的配置对象层面的。把树形的配置对象结构，转成了一个个散落的父子对象。
 
 我们再整体梳理一下 register方法：
 
@@ -454,13 +450,13 @@ register (path, rawModule, runtime = true) {
 }
 ```
 
-首先 register方法肯定会至少调用一次的，在实例化Store的时候，调用了new ModuleCollection，执行this.register([], rawRootModule, false)。根配置对象一定会被注册为根module对象，只要你配置了嵌套模块，register就会被递归调用，去注册每一个子模块，并且保证每一个子模块都通过 path 去找到自己的父模块对象，然后通过 addChild 建立父子关系，然后再看自己有没有嵌套了子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
+首先 register方法肯定会至少调用一次的，在实例化Store的时候，调用了new ModuleCollection，执行this.register([], rawRootModule, false)。根配置对象被注册为根module对象，只要你配置了嵌套模块，register就会被递归调用，去注册每一个子模块，并且保证每一个子模块都通过 path 去找到自己的父模块对象，然后通过 addChild 建立父子关系，然后再看自己有没有嵌套了子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
 
 我们所说的module对象，模块对象，都指的是 Module 的实例。我们看看Module构造函数
 
 ## Module 构造函数
 
-Vuex 的设计者将用户定义的 module 配置对象称为 rawModule ，未经加工的配置对象，传入 new Moudle 执行之后，实现了从 rawModule 到 module 对象的转变。我们先看 constructor。
+Vuex 的设计者将用户定义的 module 配置对象称为 rawModule(未经加工的配置对象)，传入 new Moudle 执行之后，实现了从 rawModule 到 module 对象的转变。
 
 ```js
 class Module {
@@ -471,43 +467,52 @@ class Module {
     const rawState = rawModule.state
     this.state = (typeof rawState === 'function' ? rawState() : rawState) || {}
   }
-  // ...原型方法
+  // ...原型方法后续会介绍
 }
 ```
-
 Module的实例会挂载一些属性：比如 _children，属性值为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 对象。
 
-此外，Module有很多原型方法，我们暂时不作一一介绍。
-
-现在我们回过头，梳理整个 new ModuleCollection 的过程（也就是register的执行）。包含了两件事：
+现在我们回过头，梳理整个 new ModuleCollection 的过程(register的执行)，包含了两件事：
 
 1. 由 rawModule 配置对象 通过new Module 构建出 module 对象
-2. 通过调用 register 结合递归，建立父子 module 对象之间的父子联系
+2. 通过递归调用register，建立父子 module 对象之间的父子联系
 
 new Module 是在 new ModuleCollection 的过程中发生的，先生成了模块对象，再进行模块对象的收集。
 
 ### installModule
 
-我们在讲 Store 的 constructor 时，讲了它重点的做的三件事，现在我们讲完了模块对象的创建和建立父子关系，接着就是模块的安装，也就是 constructor 中的这句：
+我们在讲 Store 的 constructor 时，讲了它重点的做的三件事，现在我们讲完了模块对象的创建和建立父子关系，接着就是模块的安装(初始化根模块对象)，也就是 constructor 中的这句：
 
 ```js
 installModule(this, state, [], this._modules.root)
 ```
 
-这是初始化根模块对象，我们看installModule的实现：
+在默认情况下，模块内部的action、mutation 和 getter是注册在全局命名空间的，这样会使得多个模块中的同名mutation 或 action对同一个mutation 或 action作出响应。
+
+Vuex 2.x版本添加了命名空间的功能，使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`。
+
+但默认情况下，模块内部的 action、mutation 和 getter 是注册在全局命名空间的，比如，不同模块有同名的mutation，会导致多个模块能够对同一个 mutation 作出响应。
+
+如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式使其成为带命名空间的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
+如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式使其成为带命名空间的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
+启用了命名空间的 getter 和 action 会收到局部化的 getter，dispatch 和 commit。换言之，你在使用模块内容（module assets）时不需要在同一模块内额外添加空间名前缀。更改 namespaced 属性后不需要修改模块内的代码。
+
+#在带命名空间的模块内访问全局内容（Global Assets）
+如果你希望使用全局 state 和 getter，rootState 和 rootGetters 会作为第三和第四参数传入 getter，也会通过 context 对象的属性传入 action。
+
+若需要在全局命名空间内分发 action 或提交 mutation，将 { root: true } 作为第三参数传给 dispatch 或 commit 即可。
+我们看installModule的实现：
 
 ```js
 function installModule(store, rootState, path, module, hot) {
   const isRoot = !path.length // 是否为根module
   const namespace = store._modules.getNamespace(path) // 获取module的namespace
-
   if (module.namespaced) {
     if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
       console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
     }
     store._modulesNamespaceMap[namespace] = module
   }
-
   if (!isRoot && !hot) { // 不为根且非热更新
     const parentState = getNestedState(rootState, path.slice(0, -1)) // 获取父级的state
     const moduleName = path[path.length - 1] // module的name
@@ -1187,11 +1192,13 @@ store._vm = new Vue({
 
 ## Vuex.Store实例方法的实现
 ### commit
-引入commit:
-我们知道，更改 store中的state的唯一的方法是 提交 mutation，mutation都有一个字符串的type和一个handler回调函数，handler做的就是改变state，并且会接收state作为第一个参数，比如我们现在有个mutation叫change
+
+更改 store中的state的唯一的方法是提交 mutation，mutation都有一个字符串的type和一个handler回调函数，handler做的就是改变state，并且会接收state作为第一个参数，比如：
 ```js
 const store = new Vuex.Store({
-  state:{ a:1}
+  state:{
+    a:1
+  }
   mutations:{
     change(state){
       state.a++
@@ -1199,17 +1206,17 @@ const store = new Vuex.Store({
   }
 })
 ```
-你像上面这么写了，其实就像是一种事件的注册，当你触发 change 这个 type 类型的 mutation时，会调用它的handler回调函数，注意到的是，你不能直接调用mutation的handler，你需要调用 store.commit 来实现
+这其实就像一种事件的注册，当你调用store.commit触发"change"这个type类型的mutation时，会调用它的handler回调函数，注意，并不能直接调用mutation的handler
 
 ```js
- store.commit('change')
+store.commit('change')
 ```
 
-commit是Store构造函数的原型方法，我们看看它的实现：
+commit是Store构造函数的原型方法，作用是提交mutation，我们看看它的实现：
 
 ```js
 commit (_type, _payload, _options) {
-  let { type, payload, options } = unifyObjectStyle(_type, _payload, _options)
+  const {type, payload, options} = unifyObjectStyle(_type, _payload, _options)
   const mutation = { type, payload }
   const entry = this._mutations[type]
   if (!entry) {
@@ -1224,69 +1231,52 @@ commit (_type, _payload, _options) {
     })
   })
   this._subscribers.forEach(sub => sub(mutation, this.state))
-  // 省略
+  // ...
 }
 ```
-首先明确 commit 的作用是 提交 mutation。
-它最多接收3个参数：
-_type：每个mutation都有一个 type 字符串，可以称它为mutation的类型
-_payload：载荷（大部分情况下是一个对象），你可以向 commit 传这个额外的参数
-_options：这个是什么
-阅读Vuex文档可知，commit这个api的调用还可以直接传 一个 包含 type的对象
+commit最多接收3个参数：
+
+_type：要提交的mutation的type字符串，可以称它为mutation名
+_payload：载荷(一般用户会传一个对象)
+_options：配置对象，可以传root: true，它允许在命名空间模块里提交根的mutation
+
+commit提交mutation的另一种方式是直接传一个包含type属性的对象：
+
 ```js
  store.commit({
    type:'change',
-   xxx: 1
+   amount: 10
  })
 ```
-好，暂时这样吧，我们分段来看看commit的代码：
-```js
-  let { type, payload, options } = unifyObjectStyle(_type, _payload, _options)
-  const mutation = { type, payload }
-  const entry = this._mutations[type]
-  if (!entry) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error(`[vuex] unknown mutation type: ${type}`)
-    }
-    return
-  }
-```
-我们看到unifyObjectStyle的实现，它做的是统一不同的传参调用方式的差异
-```js
-function unifyObjectStyle (type, payload, options) {
-  if (isObject(type) && type.type) {
-    options = payload;
-    payload = type;
-    type = type.type;
-  }
-  assert(typeof type === 'string', ("expects string as the type, but found " + (typeof type) + "."));
-  return {
-    type,
-    payload,
-    options
-  }
-}
-```
-如果 type 是对象 且对象里有type这个属性，调用commit传的第一个参数是对象，type 取 type.type，然后整个对象作为payload对象看待，而options则取第二个参数传的内容，没有传则为undefined
-然后会判断type它是不是字符串，如果不是，会报警提示
-然后我们把 type payload options 放到一个对象里，返回。
+我们分段来看看commit的代码：
 
 ```js
-let { type, payload, options } = unifyObjectStyle(_type, _payload, _options)
-  const mutation = { type, payload }
-  const entry = this._mutations[type]
-```
-所以定义的type, payload, options就指向了unifyObjectStyle整理好的对象里的type, payload, options
-然后 把 type和payload存到一个对象中，赋给mutation，然后看存放 mutation的 this._mutations 取一下type对应的mutation，赋给 entry
-```js
- if (!entry) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error(`[vuex] unknown mutation type: ${type}`)
-    }
-    return
+const {type, payload, options} = unifyObjectStyle(_type, _payload, _options)
+const mutation = { type, payload }
+const entry = this._mutations[type]
+if (!entry) {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(`[vuex] unknown mutation type: ${type}`)
   }
+  return
+}
+```
+我们已经介绍过unifyObjectStyle函数，它对参数做统一化处理，从执行结果中解构出type, payload, options。
+
+创建一个包含type和payload属性的对象，赋给mutation。获取store实例的_mutations对象中的type对应的mutation数组，赋给entry
+
+如果entry不存在，在开发环境下，要打印警告：你传的type没有对应的mutation，然后直接返回
+
+```js
+if (!entry) {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(`[vuex] unknown mutation type: ${type}`)
+  }
+  return
+}
 ```
 如果 entry不存在，说明这个mutation没有注册过，所以你无法调用 store.commit 去提交这个mutation，会给你一个报警提示：未知的mutation type，然后直接返回
+
 接下来，继续看：
 ```js
 this._withCommit(() => {
@@ -1295,16 +1285,15 @@ this._withCommit(() => {
   })
 })
 ```
-我们前面分析过 _withCommit的作用就是，在你的回调执行的前后，对_committing这个标志位进行控制
-_withCommit会把_committing先置为true，然后执行回调，也就是_withCommit传入的那个参数，执行完后再把_committing 恢复到原来的值。
+我们前面分析过 _withCommit做的事是把_committing先置为true，然后执行回调函数，执行完后再把_committing 恢复到原来的值。
 
-我们先来看回调做了什么事：entry指向this._mutations[type]，是一个存放type对应的mutation的数组，遍历数组，执行回调，handler(payload)，也就是mutation的handler传入 payload执行。所以回调就是将type对应的mutation都遍历commit一遍，执行handler
+我们先来看回调做了什么事：遍历数组entry，即this._mutations[type]数组，将数组每一个handler执行，传入用户调用commit时传入的payload。也就是，将type对应的handler(不管有几个)都执行一遍。
 
-我们继续看commit的剩余代码
+接下来：
 ```js
-  this._subscribers.forEach(sub => sub(mutation, this.state))
-  // 省略
+this._subscribers.forEach(sub => sub(mutation, this.state))
 ```
+
 this._subscribers的this指向 store对象，_subscribers存放的是所有对mutation的订阅者
 这是哪来的呢？？？其实我们看Vuex文档可知，Store有一个原型方法subscribe，虽然你很少用到它，它的作用是订阅mutation，然后handler会在mutation完成后调用，通常这个方法是用于插件，其实没啥必要看，既然都写到这了，看吧
 ```js
@@ -1331,25 +1320,20 @@ genericSubscribe执行返回一个函数，函数中会找到fn在subs数组中�
 `this._subscribers.forEach(sub => sub(mutation, this.state))`
 现在遍历 mutation 的订阅者数组，执行回调，sub就是你subscribe的时候自己写的回调fn，fn执行传入mutation和经过mutation后的state。
 
-回顾一下，commit做了哪些事
-- 遍历this._mutations[type]数组，执行mutation的handler函数，接收payload（这个过程中伴有对_commiting标志位的控制）
-- 将所有订阅mutation的订阅者，也就是用户调用subscribe传入的fn，执行，执行时传入mutation和改动后的state
-
 ### dispatch
-终于来到dispatch。。
-首先搞明白store.dispatch作用是什么，分发action。我们知道action通常是异步的，那你怎么知道action什么时候结束呢，store.dispatch就用来处理 action的handler函数执行 返回的 promise，并且
-store.dispatch执行返回的也是promise
-我们的action一般这么写：
+
+dispatch是Store的原型方法，作用是触发action。action通常进行异步操作，store.dispatch就用来处理action的处理函数执行返回的promise，并且store.dispatch执行也是返回promise。
+
 ```js
 actions:{
   actionA({ commit }){
     return new Promise((resolve,reject)=>{
-      // 一个异步操作，会调用resolve
+      // 异步操作
     })
   }
 }
 ```
-用 store.dispatch分发 action 你可以这么写
+用store.dispatch分发action你可以这么写
 ```js
 store.dispatch('actionA').then(()=>{
   // ....
@@ -1358,7 +1342,6 @@ store.dispatch('actionA').then(()=>{
 好的，现在看看store.dispatch的实现，比较长，分段看吧：
 ```js
 dispatch (_type, _payload) {
-  // check object-style dispatch
   const { type, payload } = unifyObjectStyle(_type, _payload)
   const action = { type, payload }
   const entry = this._actions[type]
@@ -1368,50 +1351,49 @@ dispatch (_type, _payload) {
     }
     return
   }
-  // ....暂时省略
+  // ....
 }
 ```
-和commit类似的套路，先把dispatch函数接收的两个参数，调用unifyObjectStyle做一下归一化
-然后变量type, payload取到归一化后的type, payload，把他们放进一个对象，然后赋给action变量
-定义entry，指向this._actions[type]，this._actions是存放action的对象，this._actions[type]是存放type对应的action的数组。
-如果entry不存在，说明该type的action还没注册，你无法取dispatch分发它，报警提示；未知的 action type，然后直接返回
+调用unifyObjectStyle函数对dispatch函数接收的参数做归一化。
+
+然后变量type, payload取到归一化后的type, payload，把他们放进一个对象，然后赋给变量action
+
+定义entry，指向this._actions[type]，它是存放type对应的action方法的数组。
+
+如果entry不存在，说明该type的action还没注册，报警提示；未知的action type，然后直接返回
 
 接着继续：
 ```js
-  try {
-    this._actionSubscribers
-      .filter(sub => sub.before)
-      .forEach(sub => sub.before(action, this.state))
-  } catch (e) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(`[vuex] error in before action subscribers: `)
-      console.error(e)
-    }
+try {
+  this._actionSubscribers
+    .filter(sub => sub.before)
+    .forEach(sub => sub.before(action, this.state))
+} catch (e) {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(`[vuex] error in before action subscribers: `)
+    console.error(e)
   }
+}
 ```
-action的订阅函数。。。艹，算了，这里我不想分析了，还没用过它
+action的订阅函数。。。算了，这里我不想分析了，还没用过它
 
 再接下来：
 ```js
-  const result = entry.length > 1
-    ? Promise.all(entry.map(handler => handler(payload)))
-    : entry[0](payload)
-  return result.then(res => {
-    // 这是。。。先不太了解，做了一个try catch
-    return res
-  })
+const result = entry.length > 1
+  ? Promise.all(entry.map(handler => handler(payload)))
+  : entry[0](payload)
+return result.then(res => {
+  // 这是。。。先不太了解，做了一个try catch
+  return res
+})
 ```
-如果entry数组的长度>1，说明type对应的action有多个，就说明可能有多个异步操作，我们不能单纯的遍历执行action，而是把每个action的执行结果（promise对象）放到一个数组里，传给Promise.all，给它管控
-所以entry数组调用map，将数组里每个handler转成 handler的执行结果，然后整个map的结果，是一个数组，传给Promise.all()，返回值赋给result
+如果entry数组的长度>1，说明type对应的action的处理函数有多个(同名action传了多个)，可能每个回调就管控一个异步操作，我们不能单纯地遍历执行action，而是要把每个action的执行结果(promise对象)放到一个数组里，传给Promise.all，给它管控。
 
-如果 entry数组只有1个元素，就将它（handler）传入payload执行，执行返回值赋给result
+所以将entry数组里每个handler执行，传入dispatch传入的payload，handler的执行结果覆盖数组的每项，然后map返回的是一个数组，传给Promise.all执行，执行返回值赋给result
 
-我们知道 result必然是一个promise实例，它接着调用then，做一些处理（具体是啥以后再分析）
-在then的成功回调中，将result结果返回
+如果entry数组只有1个元素，就将它这个handler函数传入payload执行，执行返回值赋给result
 
-所以dispatch做了什么事
-- 将this._actions[type]，即type对应的存放action的数组中所有action的handler执行，如果有多个action，则将各自执行的结果组成的数组，传入Promise.all管控，否则直接执行
-- 上一步的result调用then，做一些xxxxx，然后把result返回出来
+我们知道registerAction函数中将action的处理函数包裹成wrappedActionHandler函数，推入entry数组，它返回的一定是promise实例，所以result一定是promise实例，它调用then，做一些处理后，返回res。
 
 ## 辅助函数
 

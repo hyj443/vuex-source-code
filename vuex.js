@@ -1053,3 +1053,12 @@
   return index;
 
 }));
+
+
+
+let a = undefined
+
+console.log(
+
+  a.then  
+);
