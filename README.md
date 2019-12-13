@@ -27,7 +27,7 @@ new Vue({
 >如果插件是一个对象，它必须提供 install 方法。如果插件是一个函数，则它被作为 install 方法。install 接收的第一个参数就是 Vue 对象
 >Vue.use 需要在调用 new Vue() 之前被调用
 
-src\index.js 入口文件中，Vuex 导出默认对象中有 install 方法：
+src\index.js 入口文件中，Vuex 默认导出的对象如下：
 
 ```js
 export default {
@@ -41,8 +41,9 @@ export default {
   createNamespacedHelpers
 }
 ```
+对象中有 Store 构造函数，有 install 方法，也有mapState等辅助方法。
 
-Vue.use执行时，会调用 install。我们看 `install` 方法。
+Vue.use执行时，会调用这个install方法。我们看看 `install`。
 
 ```js
 let Vue
@@ -126,9 +127,9 @@ const store = new Vuex.Store({
 })
 ```
 
-Vuex默认导出的对象中有Store这个构造函数，对它的实例化返回出store实例。Store构造函数接收一个选项对象，包含actions、getters、state、mutations、modules等。
+实例化Vuex.store，传入一个包含actions、getters、state、mutations、modules等的配置对象，返回出store实例。
 
-接下来我们看看 Store 这个构造函数。代码较长，我们拆分成几段来看：
+我们仔细看看 Store 这个构造函数。因为代码较长，我们拆分成几段：
 
 ```js
 class Store {
@@ -147,21 +148,20 @@ class Store {
 }
 ```
 
-首先判断，如果 Vue 没有值，且当前是浏览器环境，且 window 上有 Vue ，说明没有调用过install，就传入 window.Vue 执行 install 方法，这是一种属于Vuex的主动安装。
+首先判断，如果本地Vue没有值，且当前是浏览器环境，且window.Vue存在，说明没有调用过install，那么传入window.Vue执行 install方法。这赋予了Vuex在用户没有调用Vue.use(Vuex)的情况下，主动进行自我安装的能力。
 
-然后是开发环境中，执行3个断言函数，判断是否具备使用Vuex的必要条件。
-
-assert函数是一个简单的断言函数的实现。
+Vuex的使用需要一些必要条件。在开发环境中，执行3个assert函数，判断条件是否具备。
 
 ```js
 export function assert (condition, msg) {
   if (!condition) throw new Error(`[vuex] ${msg}`)
 }
 ```
+3个assert函数所做的事是：
 
-1. 如果Vue没有值，抛出错误：实例化 Store 之前必须调用Vue.use(Vuex)，这样Vue变量才能是Vue构造函数，后面会用到
-2. 如果Promise不能用，也会抛出错误：Vuex 依赖 Promise。
-3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误： Store 必须用 new 字符调用
+1. 如果本地 Vue 没有值，抛出错误：实例化 Store 之前必须调用 Vue.use(Vuex)，这样 Vue 构造函数才能传进来，供后续使用
+2. 如果 Promise 不能用，抛出错误：Vuex 依赖 Promise。
+3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误：Store 必须用 new 关键字调用
 
 环境判断后，初始化一些store实例的属性，代表内部状态：
 
@@ -177,15 +177,17 @@ this._modulesNamespaceMap = Object.create(null) // 模块命名空间
 this._subscribers = [] // 存储所有对mutation变化的订阅者
 this._watcherVM = new Vue() // Vue实例
 this._makeLocalGettersCache = Object.create(null)//存放生成的本地getters的缓存
+// ...
+this.strict = strict
 ```
 
-strict模式默认为false，如果实例化Store时传了strict:true，进入严格模式，任何 mutation 处理函数以外修改 Vuex state 都会抛出错误。
+如果实例化 Store 时传了 strict: true，则 store 实例的 strict 属性为 true，进入严格模式，任何 mutation 处理函数以外修改 state 都会抛出错误。如果用户没传 strict 选项，则 store 实例的 strict 属性默认为false。
 
-暂时我们不用管每个具体是什么含义。其中的重点是：
+我们暂时不用具体了解每一个的实例属性的含义。但其中的重点是：
 
  `this._modules = new ModuleCollection(options)`
  
-稍后会详细介绍。接下来继续看 constructor ：
+稍后会详细介绍，接下来继续看 constructor ：
 
 ```js
 const store = this
@@ -198,11 +200,13 @@ this.commit = function boundCommit (type, payload, options) {
 }
 ```
 
-首先定义 store 变量指向当前 store 实例。再解构出 Store 的原型上的 dispatch 、commit 方法，赋给了变量dispatch、commit，接着给 store 实例添加dispatch和commit方法，它们分别相当于指定了this为当前store实例的dispatch和commit原型方法。
+首先定义 store 变量指向当前 store 实例。再定义 dispatch 和 commit ，分别缓存 Store 原型上的 dispatch 和 commit 方法。
 
-现在 store 实例对象上就有了 dispatch 和 commit 两个方法，store调用它们时就不会访问原型上的方法，具体它们做了什么，后面会讲。
+接着，给 store 实例添加 dispatch 和 commit 方法，方法调用实际执行 Store 原型上的 dispatch 和 commit 方法，只是执行时的 this 指向当前 store 实例对象。
 
-接着看 constructor
+具体 Store 原型上的 dispatch 和 commit 这俩方法做了什么事情，后面会讲。
+
+接着看 constructor：
 
 ```js
 this.strict = strict
@@ -210,24 +214,23 @@ const state = this._modules.root.state
 installModule(this, state, [], this._modules.root)
 resetStoreVM(this, state)
 plugins.forEach(plugin => plugin(this))
-// ...省略
 ```
+1. 从 options 中解构出来的 strict 属性值，赋给 store 实例的 strict 属性。
 
-现在到了 Vuex 初始化的核心部分了，包括了：
+2. 由前面可知，this._modules 是 ModuleCollection 的实例，它的 root 属性是根 module 对象，根 module 对象的state 属性指向它的 state 对象。所以这里获取根 state 赋给 state 变量。
+3. 调用 installModule 进行模块的注册，传入 store 实例、根 state、[]、根 module 对象。
 
-1. strict 是从options中解构出来的属性值，将它赋给 store实例的strict属性
-2. 由于this._modules = new ModuleCollection(options)，获取根 state 对象赋给变量state
-3. 调用 installModule进行模块的注册，传入store实例，state，空数组和new Store时传入的选项对象。
-4. 调用resetStoreVM函数，进行state的响应式化处理
+4. 调用 resetStoreVM 函数，对 state 进行响应式化处理，将 getter 转为计算属性
+
 5. 遍历plugins数组，进行插件的逐个注册
 
-上面这些我们不知道它具体的实现，只需先了解，后面会展开讲。所以到目前为止，constructor 的代码已经过了一遍。总结一下，Store 函数主要做了三件事：
+上面这些我们只需先了解，后面会展开讲。到目前为止，constructor 的代码已经过了一遍。new Store 主要做了三件事：
 
 1. 初始化一些内部属性，其中重点是 this._modules = new ModuleCollection(options)
-2. 执行installModule，安装模块
-3. 执行resetStoreVM ，使store响应式化
+2. 执行 installModule ，安装模块
+3. 执行 resetStoreVM ，使store响应式化
 
-我们将逐个细说这三个，先说初始化 _module 属性，也就是 module 的收集
+我们将逐个细说这三个，先说初始化 _module 属性，即 module 的收集
 
 ### Module 收集
 
@@ -237,9 +240,9 @@ this._modules = new ModuleCollection(options)
 
 Vuex文档里是这么说：
 
-> store 使用单一的状态树，用一个对象就包含了全部的应用层级的状态，每个应用将仅仅包含一个 store 实例。
+> store 使用单一的状态树，用一个对象包含了全部的应用层级的状态，每个应用将仅仅包含一个 store 实例。
 
-如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将 store 切割成 module，每个模块都有自己的 state 、mutation、action、getter、甚至子模块，像下面这样从上至下进行分割：
+如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将 store 分割成模块(module)，每个模块都有自己的 state 、mutation、action、getter、甚至是嵌套子模块，像下面这样从上至下进行同样方式的分割：
 
 ```js
 const moduleA = {
@@ -263,9 +266,9 @@ store.state.a // -> moduleA 的状态
 store.state.b // -> moduleB 的状态
 ```
 
-可以看到，module的设计是一个用配置对象描述的树形结构，store 本身可以理解为一个根 module，下面是一些子 module。我们希望将这种树形关系，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集
+可见，store 本身可以理解为一个根 module，它有嵌套的子 module。我们希望这种用一个配置对象描述的树形结构，转成通过父子关系彼此联系的单个对象的存在，即进行 module 的收集。
 
-这是通过new ModuleCollection实现，我们看看 `ModuleCollection` 这个构造函数：
+而这是通过 new ModuleCollection 实现的，我们看看 `ModuleCollection` 构造函数：
 
 ```js
 class ModuleCollection {
@@ -278,9 +281,7 @@ class ModuleCollection {
   // ...
 }
 ```
-new ModuleCollection(options) 就是执行register原型方法
-
-我们看看 register 这个函数：
+new ModuleCollection(options) 就是执行原型方法 register：
 
 ```js
 register (path, rawModule, runtime = true) {
@@ -304,25 +305,23 @@ register (path, rawModule, runtime = true) {
   }
 }
 ```
-register 方法，它接收3个参数：
+register 方法接收3个参数：
 
-1. path，是module的key组成的数组，作为唯一的路径，区分了不同的module。比如根 store 对象被视为根module，它的path为[]，它的子模块 moduleA 的 path 是 ['a'] ，子模块 moduleB 的 path 是 ['b'] ，如果它们有嵌套的子模块，则它们的 path 就大致形如 ['a','a1'] 、['a','a2'] 、['b','b1']
-2. rawModule，是定义当前 module 的options对象，后面我们统一称它为配置对象。像 rawRootModule 就是实例化 Store 时传入的配置镀锡，我们把它看作根module的配置对象。
+1. path：module 的 key 组成的数组，代表 module 对象的唯一路径。比如根 module 的 path 为空数组，它的子模块 moduleA 的 path 是 ['a'] ，子模块 moduleB 的 path 是 ['b'] ，如果它们有嵌套的子模块，则它们的 path 就大致形如 ['a','a1']、['a','a2']、['b','b1']
+2. rawModule：定义当前 module 的 options 对象，后面统称之为配置对象。rawRootModule 就是实例化 Store 时传入的配置对象，我们把它看作根 module 的配置对象。
 3. runtime 表示是否是一个运行时创建的 module，默认为 true。
 
 ```js
 this.register([], rawRootModule, false)
 ```
-
-new ModuleCollection(options)时，首次调用register，第一个参数传入[]，说明这是注册根module。rawRootModule是实例化Store时传入的配置对象。
+new ModuleCollection(options)时，首次调用register，第一个参数传入空数组，说明 register 的是根 module。rawRootModule 是实例化 Store 时传入的配置对象。
 
 我们具体分段看register的内部：
 
 ```js
-  assertRawModule(path, rawModule)
-  const newModule = new Module(rawModule, runtime)
+assertRawModule(path, rawModule)
+const newModule = new Module(rawModule, runtime)
 ```
-
 首先调用 assertRawModule 对 module 的配置对象作一些判断，遍历用户传的配置对象中的 getters、mutations、actions 是否符合要求，这里不作具体分析。
 
 然后根据当前的配置对象，创建一个Module实例，赋给变量 newModule。
@@ -450,9 +449,16 @@ register (path, rawModule, runtime = true) {
 }
 ```
 
-首先 register方法肯定会至少调用一次的，在实例化Store的时候，调用了new ModuleCollection，执行this.register([], rawRootModule, false)。根配置对象被注册为根module对象，只要你配置了嵌套模块，register就会被递归调用，去注册每一个子模块，并且保证每一个子模块都通过 path 去找到自己的父模块对象，然后通过 addChild 建立父子关系，然后再看自己有没有嵌套了子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
+首先 register方法肯定会至少调用一次的，在实例化Store时，调用了new ModuleCollection，执行this.register将根配置对象被注册为根module对象，只要配置了嵌套模块，就会递归调用register，注册每一个子模块，每一个子模块都通过 path 找到自己的父模块对象，通过 addChild 添加_children属性建立父子关系，然后再看自己有没有嵌套子模块，如果有就继续递归调用register，完成了整个 module 树的注册。
 
-我们所说的module对象，模块对象，都指的是 Module 的实例。我们看看Module构造函数
+new ModuleCollection的过程(register的执行)，包含了两件事：
+
+1. 由 rawModule 配置对象通过new Module 构建出 module 对象
+2. 通过递归调用register，建立父子 module 对象之间的父子联系
+
+new Module 是在 new ModuleCollection 的过程中发生的，先生成了模块对象，再进行模块对象的收集。
+
+我们所说的module对象，模块对象，都指的是 Module 实例。我们看看Module构造函数
 
 ## Module 构造函数
 
@@ -467,17 +473,21 @@ class Module {
     const rawState = rawModule.state
     this.state = (typeof rawState === 'function' ? rawState() : rawState) || {}
   }
-  // ...原型方法后续会介绍
+  get namespaced () {
+    return !!this._rawModule.namespaced
+  }
+  // 原型方法后续会介绍
 }
 ```
-Module的实例会挂载一些属性：比如 _children，属性值为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 对象。
+Module的实例会挂载一些属性：比如 _children，初始化为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 对象。
 
-现在我们回过头，梳理整个 new ModuleCollection 的过程(register的执行)，包含了两件事：
+我们可以使用一个返回一个对象的函数来声明模块的state，返回的对象会被用作state，赋给 this.state
 
-1. 由 rawModule 配置对象 通过new Module 构建出 module 对象
-2. 通过递归调用register，建立父子 module 对象之间的父子联系
+和Vue组件里的data一样，如果使用一个纯对象来声明模块的state，那么这个state对象会通过引用被共享，导致state对象被修改时，store或模块间数据相互污染。
 
-new Module 是在 new ModuleCollection 的过程中发生的，先生成了模块对象，再进行模块对象的收集。
+因为有时我们可能需要创建一个模块的多个实例，比如，创建多个store实例，或在一个store中多次注册同一个模块
+
+namespaced是Module的原型属性，使用get给它的属性描述符对象添加了get方法，当Module实例读取namespaced时，会沿着原型链找到并读取原型上的namespaced，触发了它的get方法，返回模块的配置对象的namespaced属性值的真假
 
 ### installModule
 
@@ -486,22 +496,7 @@ new Module 是在 new ModuleCollection 的过程中发生的，先生成了模�
 ```js
 installModule(this, state, [], this._modules.root)
 ```
-
-在默认情况下，模块内部的action、mutation 和 getter是注册在全局命名空间的，这样会使得多个模块中的同名mutation 或 action对同一个mutation 或 action作出响应。
-
-Vuex 2.x版本添加了命名空间的功能，使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`。
-
-但默认情况下，模块内部的 action、mutation 和 getter 是注册在全局命名空间的，比如，不同模块有同名的mutation，会导致多个模块能够对同一个 mutation 作出响应。
-
-如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式使其成为带命名空间的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
-如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式使其成为带命名空间的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
-启用了命名空间的 getter 和 action 会收到局部化的 getter，dispatch 和 commit。换言之，你在使用模块内容（module assets）时不需要在同一模块内额外添加空间名前缀。更改 namespaced 属性后不需要修改模块内的代码。
-
-#在带命名空间的模块内访问全局内容（Global Assets）
-如果你希望使用全局 state 和 getter，rootState 和 rootGetters 会作为第三和第四参数传入 getter，也会通过 context 对象的属性传入 action。
-
-若需要在全局命名空间内分发 action 或提交 mutation，将 { root: true } 作为第三参数传给 dispatch 或 commit 即可。
-我们看installModule的实现：
+我们看看installModule的实现：
 
 ```js
 function installModule(store, rootState, path, module, hot) {
@@ -574,19 +569,17 @@ const store = new Vuex.Store({
 
 我们先看 installModule 它接收什么参数：
 
-```js
-function installModule(store, rootState, path, module, hot) {
-  // 
-}
-```
-store 是 Store实例，就是new Vuex.Store时传入的store对象。rootState是根state对象，path是当前的模块对应的路径数组，module 是当前模块对象，hot代表是否支持热重载（这里不讨论它）
+- store：Store实例，就是new Vuex.Store时传入的store对象。
+- rootState：根state对象
+- path：当前的模块对应的路径数组
+- module：当前模块对象
+- hot：是否支持热重载（这里不讨论它）
 
 installModule 代码较长，我们分段来看
 
 ```js
 const isRoot = !path.length
 const namespace = store._modules.getNamespace(path)
-
 if (module.namespaced) {
   if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
     console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
@@ -595,7 +588,7 @@ if (module.namespaced) {
 }
 ```
 
-首先，使用isRoot变量来标识当前模块是否为根模块，接着，调用 ModuleCollection的原型方法 getNamespace 函数传入path，拿到当前module的namespace值。我们看看getNamespace这个方法。
+首先，使用变量isRoot来标识当前模块是否为根模块，接着，调用getNamespace函数传入path，获取当前module的命名空间。我们看看ModuleCollection的原型方法getNamespace：
 
 ```js
 getNamespace (path) {
@@ -606,10 +599,9 @@ getNamespace (path) {
   }, '')
 }
 ```
+getNamespace 首先获取到根module对象，然后调用path数组的reduce方法，累加器初始值为''，沿着path，每次迭代获取到子模块对象module，如果module.namespaced存在，即当前模块的配置对象中传了namespaced为真值，就将上一次执行回调的返回值拼上当前的key字符串和'/'，否则拼接''。
 
-getNamespace 首先获取到根module对象，然后调用path的reduce方法，沿着path，每次迭代获取到子模块对象module，如果module.namespaced存在，就将上一次执行回调的返回值(类加值)拼上当前的key字符串和'/'，否则拼接''，累加器初始值为''。
-
-通过这样的方式就返回出当前模块的 namespace 字符串。我们称它为命名空间。
+reduce迭代结束时，返回出当前模块的namespace，称它为命名空间字符串。
 
 ```js
 if (module.namespaced) {
@@ -619,7 +611,7 @@ if (module.namespaced) {
   store._modulesNamespaceMap[namespace] = module
 }
 ```
-如果当前模块使用了命名空间，再判断，如果store对象的属性_modulesNamespaceMap，这个对象中是否存在该命名空间，如果有，则报错提示：命名空间的名称重复了，如果没有，则将命名空间和它对应的模块对象，作为键值对添加到_modulesNamespaceMap对象中
+如果当前模块使用了命名空间，再判断，store对象的属性_modulesNamespaceMap，如果该对象中已经存在当前命名空间，则报错提示：命名空间的名称重复了。如果没有，则将命名空间和它对应的模块对象，作为键值对添加到_modulesNamespaceMap对象中
 
 继续看installModule的代码：
 
@@ -648,9 +640,7 @@ if (!isRoot && !hot) {
 ```
 如果当前模块不是根模块，且非热更新，执行if语句块。
 
-首先，根据根state和父模块的path，通过调用getNestedState函数，获取当前模块的父state
-
-我们快速看一看 getNestedState 的实现：
+首先，根据根state和父模块的path，通过调用getNestedState函数，获取当前模块的父state。我们结合 getNestedState 来看：
 
 ```js
 function getNestedState (state, path) {
@@ -658,11 +648,28 @@ function getNestedState (state, path) {
 }
 ```
 
-父模块的path调用reduce，累加器的初始值为根state，每次迭代返回出它的子模块的state，沿着path路径，一个个往下获取，直到获取到当前state的父state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
+父模块的path调用reduce，累加器的初始值为根state，每次迭代返回出它的子模块的state，沿着path路径，一个个往下获取子state，直到获取到当前state的父state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
 
 `const moduleName = path[path.length - 1]` 获取到当前模块的key名，赋给moduleName
 
-接着调用了Store的原型方法_withCommit，我们先看看_withCommit这个Store的原型方法
+接着调用了Store的原型方法_withCommit，传入一个回调函数，我们先看看函数中做了什么
+
+```js
+if (process.env.NODE_ENV !== 'production') {
+  if (moduleName in parentState) {
+    console.warn(
+      `[vuex] state field "${moduleName}" was overridden by a module with the same name at "${path.join('.')}"`
+    )
+  }
+}
+Vue.set(parentState, moduleName, module.state)
+```
+
+如果是在开发环境中，则判断当前模块的key名(比如叫value)，已经存在于父模块(假定模块名叫foo)的state对象中，会有这样的问题：当你通过store.state.foo.value获取父模块foo的state的value值时，你拿到的却是当前这个子模块value的配置对象，即父模块的state的value属性被覆盖了，所以要报错提示。
+
+然后执行 `Vue.set(parentState, moduleName, module.state)`，给父模块的state对象添加响应式属性，属性名为当前模块名，属性值为模块的state对象。
+
+我们先看看_withCommit这个Store的原型方法
 
 ```js
 _withCommit (fn) {
@@ -672,14 +679,9 @@ _withCommit (fn) {
   this._committing = committing
 }
 ```
+_withCommit接收函数fn，首先把当前store的_committing置为true，然后执行fn，再把 _committing属性值恢复到原来的值。可见，_withCommit的作用是让fn执行的过程中，_committing的值为true。
 
-_withCommit接收一个函数fn，首先把当前store的_committing置为true，然后执行fn，再把 _committing属性值恢复到原来的值。
-
-store._withCommit执行，首先_committing置为true，然后在开发环境中判断，如果当前模块的key名(假定叫value)，和父模块(假定模块名叫a)的state对象中的value冲突，比如，会有这样的问题：当你想获取父模块的state的value属性值时，store.state.a.value，你拿到的却是当前这个子模块value的配置对象，即父模块的state的这个属性被覆盖了，所以要报错提示。
-
-然后执行 `Vue.set(parentState, moduleName, module.state)`，它是修改state的一种内部的合法行为，这个过程_committing为true。所有合法的修改state的操作发生时，都让_committing为true，其他时刻都为false，因此任何非法修改state的动作都会报错警告："do not mutate vuex store state outside mutation handlers."
-
-Vue.set给根state对象添加响应式的子state，响应式属性为模块名，属性值为模块的state。
+因为fn中有修改state的操作。所有合法的修改state的操作发生时，都将它放入_withCommit的回调fn，让这个过程的_committing为true，其他时刻都默认为false，因此任何非法修改state的动作都会报错提示："do not mutate vuex store state outside mutation handlers."
 
 接下来，注册 mutation 等：
 
@@ -692,7 +694,7 @@ module.forEachMutation((mutation, key) => {
 })
 ```
 
-首先执行makeLocalContext方法，传入store对象，当前模块的命名空间，和当前的模块路径path，返回的值赋给 local 和 module.context。
+首先执行makeLocalContext方法，传入store对象，当前模块的命名空间，当前的模块路径path，返回值赋给local和module.context。
 
 我们看看 makeLocalContext 的实现：
 
@@ -700,32 +702,7 @@ module.forEachMutation((mutation, key) => {
 function makeLocalContext (store, namespace, path) {
   const noNamespace = namespace === ''
   const local = {
-    dispatch: noNamespace ? store.dispatch : (_type, _payload, _options) => {
-      const args = unifyObjectStyle(_type, _payload, _options)
-      const { payload, options } = args
-      let { type } = args
-      if (!options || !options.root) {
-        type = namespace + type
-        if (process.env.NODE_ENV !== 'production' && !store._actions[type]) {
-          console.error(`[vuex] unknown local action type: ${args.type}, global type: ${type}`)
-          return
-        }
-      }
-      return store.dispatch(type, payload)
-    },
-    commit: noNamespace ? store.commit : (_type, _payload, _options) => {
-      const args = unifyObjectStyle(_type, _payload, _options)
-      const { payload, options } = args
-      let { type } = args
-      if (!options || !options.root) {
-        type = namespace + type
-        if (process.env.NODE_ENV !== 'production' && !store._mutations[type]) {
-          console.error(`[vuex] unknown local mutation type: ${args.type}, global type: ${type}`)
-          return
-        }
-      }
-      store.commit(type, payload, options)
-    }
+    // ...
   }
   Object.defineProperties(local, {
     getters: {
@@ -740,9 +717,9 @@ function makeLocalContext (store, namespace, path) {
   return local
 }
 ```
-makeLocalContext函数中，首先定义noNamespace变量，是个布尔值，代表该模块是否使用命名空间。
+首先用noNamespace这个布尔值，代表该模块是否使用了命名空间。然后创建一个对象local，里面定义了dispatch、commit方法和getters、state属性，最后返回出local对象
 
-然后返回一个对象local，里面定义了dispatch、commit方法和getters、state 属性。我们先看看里面的dispatch方法：
+我们看看local的dispatch方法：
 
 ```js
 const local = {
@@ -761,7 +738,7 @@ const local = {
   }
 }
 ```
-如果该模块没有自己的命名空间，则local.dispatch直接使用store对象的dispatch方法。
+如果该模块没有使用命名空间，则local.dispatch直接使用store对象的dispatch方法。
 
 如果该模块存在自己的命名空间，则定义local.dispatch为一个新的函数，函数可以接收三个参数：_type：即action的名称、_payload：载荷对象、_options：配置对象，这三个参数传入unifyObjectStyle函数执行，返回值赋给args。
 
