@@ -346,7 +346,7 @@
 
     var state = this._modules.root.state;
 
-    // init rootmodule.
+    // init root module.
     // this also recursively registers all sub-modules
     // and collects all module getters inside this._wrappedGetters
     installModule(this, state, [], this._modules.root);
@@ -490,7 +490,7 @@
 
     {
       assert(Array.isArray(path), "module path must be a string or an Array.");
-      assert(path.length > 0, 'cannot register the rootmodule by using registerModule.');
+      assert(path.length > 0, 'cannot register the root module by using registerModule.');
     }
 
     this._modules.register(path, rawModule);
@@ -1053,12 +1053,3 @@
   return index;
 
 }));
-
-
-
-let a = undefined
-
-console.log(
-
-  a.then  
-);
