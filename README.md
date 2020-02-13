@@ -451,7 +451,7 @@ register (path, rawModule, runtime = true) {
 }
 ```
 
-首先 register 方法必然至少调用一次，在实例化 Store 时，会调用 new ModuleCollection，执行 register 将根配置对象被注册为根 module 对象，只要配置了嵌套模块，就会递归调用 register，注册每一个子模块，每一个子模块都通过 path 找到自己的父模块对象，通过 addChild 添加 _children 属性建立父子关系，然后再看自己有没有嵌套子模块，如果有就继续递归调用 register，最后完成整个 module 树的注册。
+首先 register 方法必然至少调用一次，在实例化 Store 时，会调用 new ModuleCollection，会执行 register，根据根配置对象注册为根 module 对象，只要配置了嵌套模块，就会递归调用 register，注册每一个子模块，每一个子模块都通过 path 找到自己的父模块对象，通过 addChild 添加 _children 属性建立父子关系，然后再看自己有没有嵌套子模块，如果有就继续递归调用 register，最后完成整个 module 树的注册。
 
 概况来说，new ModuleCollection(即 register 的执行)，做了两件事：
 
@@ -481,19 +481,21 @@ class Module {
   // 原型方法后续会介绍
 }
 ```
-Module的实例会挂载一些属性：比如 _children，初始化为一个空对象，用来存放当前模块对象的子模块对象。 _rawModule 属性，属性值为当前模块的配置对象。state 属性，属性值为该模块配置对象的 state 对象。
+Module 的实例会挂载一些属性，比如 _children，它初始值是一个空对象，用来存放当前 module 对象的子 module 对象。_rawModule 属性保存当前模块的配置对象。
 
-我们可以使用一个返回一个对象的函数来声明模块的state，返回的对象会被用作state，赋给 this.state
+然后获取配置对象中 state 的属性值，如果它为函数，则执行的返回值赋给实例的 state 属性，如果不是函数，直接赋给 state 属性，如果它是 undefined，即当前模块的配置对象没有配置 state，则 state 属性值为一个空对象
 
-和Vue组件里的data一样，如果使用一个纯对象来声明模块的state，那么这个state对象会通过引用被共享，导致state对象被修改时，store或模块间数据相互污染。
+可见，用户声明模块的 state 我们可以传一个返回一个对象的函数，返回的对象会被赋给 this.state。
 
-因为有时我们可能需要创建一个模块的多个实例，比如，创建多个store实例，或在一个store中多次注册同一个模块
+这和 Vue 组件里的 data 一样，如果使用一个纯对象来声明模块的state，那么这个 state 对象会通过引用被共享，导致 state 对象被修改时，store 或模块间数据相互污染。
 
-namespaced是Module的原型属性，使用get给它的属性描述符对象添加了get方法，当Module实例读取namespaced时，会沿着原型链找到并读取原型上的namespaced，触发了它的get方法，返回模块的配置对象的namespaced属性值的真假
+因为有时我们可能需要创建一个模块的多个实例，比如，创建多个 store 实例，或在一个 store 中多次注册同一个模块
 
-### installModule
+namespaced 是 Module 的原型属性，使用 get 给它的属性描述符对象添加了 get 方法，当 Module 实例读取 namespaced 时，会沿着原型链找到并读取原型上的 namespaced，触发了它的 get 方法，返回模块的配置对象的 namespaced 属性值的真假
 
-我们在讲 Store 的 constructor 时，讲了它重点的做的三件事，现在我们讲完了模块对象的创建和建立父子关系，接着就是模块的安装(初始化根模块对象)，也就是 constructor 中的这句：
+### installModule 初始化根模块对象
+
+我们在讲 Store 构造函数时，它重点的做的三件事，现在我们讲完了模块对象的创建和建立父子关系，接着就是模块的安装(初始化根模块对象)，也就是 constructor 中的这句：
 
 ```js
 installModule(this, state, [], this._modules.root)
@@ -530,9 +532,9 @@ function installModule(store, rootState, path, module, hot) {
 
 Vuex 2后的版本添加了命名空间的功能，使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`。
 
-但默认情况下，模块内部的 action、mutation 和 getter 是注册在全局命名空间的，比如，不同模块有同名的mutation，会导致多个模块能够对同一个 mutation 作出响应。
+但默认情况下，模块内部的 action、mutation 和 getter 是会注册在全局命名空间的。比如，不同模块有同名的 mutation，会导致这些模块能够对同一个 mutation 作出响应。
 
-如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式使其成为带命名空间的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
+如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式，使其成为带“命名空间”的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
 
 ```js
 const store = new Vuex.Store({
@@ -569,10 +571,10 @@ const store = new Vuex.Store({
 })
 ```
 
-我们先看 installModule 它接收什么参数：
+我们先看 installModule 函数接收什么参数：
 
 - store：Store实例，就是new Vuex.Store时传入的store对象。
-- rootState：根state对象
+- rootState：根 state 对象
 - path：当前的模块对应的路径数组
 - module：当前模块对象
 - hot：是否支持热重载（这里不讨论它）
@@ -590,7 +592,9 @@ if (module.namespaced) {
 }
 ```
 
-首先，使用变量isRoot来标识当前模块是否为根模块，接着，调用getNamespace函数传入path，获取当前module的命名空间。我们看看ModuleCollection的原型方法getNamespace：
+首先，使用变量 isRoot 来标识当前模块是否为根模块，可见根模块和子模块的 install 不太一样。
+
+接着，调用 getNamespace 函数，根据当前模块的 path 获取当前模块的命名空间。我们看看 ModuleCollection 的原型方法getNamespace：
 
 ```js
 getNamespace (path) {
@@ -601,9 +605,9 @@ getNamespace (path) {
   }, '')
 }
 ```
-getNamespace 首先获取到根module对象，然后调用path数组的reduce方法，累加器初始值为''，沿着path，每次迭代获取到子模块对象module，如果module.namespaced存在，即当前模块的配置对象中传了namespaced为真值，就将上一次执行回调的返回值拼上当前的key字符串和'/'，否则拼接''。
+getNamespace 首先获取到根 module 对象，然后调用 path 数组的 reduce 方法，累加器初始值为 ''，沿着 path，每次迭代获取到子模块对象 module，如果 module.namespaced 存在，即当前模块的配置对象中传了 namespaced: true，就将上一次执行回调的返回的字符串，拼上当前的 key 字符串和 '/'，否则拼接''。
 
-reduce迭代结束时，返回出当前模块的namespace，称它为命名空间字符串。
+reduce迭代结束时，返回出当前模块的 namespace 字符串，称它为命名空间字符串。
 
 ```js
 if (module.namespaced) {
@@ -613,18 +617,14 @@ if (module.namespaced) {
   store._modulesNamespaceMap[namespace] = module
 }
 ```
-如果当前模块使用了命名空间，再判断，store对象的属性_modulesNamespaceMap，如果该对象中已经存在当前命名空间，则报错提示：命名空间的名称重复了。如果没有，则将命名空间和它对应的模块对象，作为键值对添加到_modulesNamespaceMap对象中
 
-继续看installModule的代码：
+store 对象的 _modulesNamespaceMap 属性值是一个对象，专门保存各个模块的命名空间字符串。
+
+如果当前模块使用了命名空间，再判断，如果已经存在于_modulesNamespaceMap，则在开发环境下报错提示：命名空间的名称重复了。如果不存在，则将命名空间和它对应的 module 对象，作为键值对添加到 _modulesNamespaceMap 对象中。
+
+继续看 installModule 的代码：
 
 ```js
-if (!isRoot && !hot) { // 不为根且非热更新
-  const parentState = getNestedState(rootState, path.slice(0, -1)) // 获取父级的state
-  const moduleName = path[path.length - 1] // module的name
-  store._withCommit(() => { // 将子module设置成响应式的
-    Vue.set(parentState, moduleName, module.state)
-  })
-}
 if (!isRoot && !hot) {
   const parentState = getNestedState(rootState, path.slice(0, -1))
   const moduleName = path[path.length - 1]
@@ -640,9 +640,9 @@ if (!isRoot && !hot) {
   })
 }
 ```
-如果当前模块不是根模块，且非热更新，执行if语句块。
+如果当前模块不是根模块，且非热更新，执行 if 语句块。
 
-首先，根据根state和父模块的path，通过调用getNestedState函数，获取当前模块的父state。我们结合 getNestedState 来看：
+首先，根据根 state 和父模块的 path，通过调用 getNestedState 函数，获取当前模块的父 state。我们结合 getNestedState 来看：
 
 ```js
 function getNestedState (state, path) {
@@ -650,11 +650,11 @@ function getNestedState (state, path) {
 }
 ```
 
-父模块的path调用reduce，累加器的初始值为根state，每次迭代返回出它的子模块的state，沿着path路径，一个个往下获取子state，直到获取到当前state的父state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
+父模块的 path 数组调用 reduce，累加器的初始值为根 state，每次迭代返回出它的子模块的 state，沿着path路径，一个个往下获取子 state，直到获取到当前 state 的父 state。就比如`store.state` >> `store.state.a` >> `store.state.a.b`...
 
-`const moduleName = path[path.length - 1]` 获取到当前模块的key名，赋给moduleName
+`const moduleName = path[path.length - 1]` 获取到当前模块的 key 名，赋给 moduleName
 
-接着调用了Store的原型方法_withCommit，传入一个回调函数，我们先看看函数中做了什么
+接着调用 Store 的原型方法 _withCommit，传入一个回调函数，我们先看看这个回调函数做了什么：
 
 ```js
 if (process.env.NODE_ENV !== 'production') {
@@ -667,11 +667,17 @@ if (process.env.NODE_ENV !== 'production') {
 Vue.set(parentState, moduleName, module.state)
 ```
 
-如果是在开发环境中，则判断当前模块的key名(比如叫value)，已经存在于父模块(假定模块名叫foo)的state对象中，会有这样的问题：当你通过store.state.foo.value获取父模块foo的state的value值时，你拿到的却是当前这个子模块value的配置对象，即父模块的state的value属性被覆盖了，所以要报错提示。
+开发环境下，如果当前模块的 key 名（比如叫 value），这个名称已经存在于父模块（假设模块名叫 foo）的state对象中，会有这样的问题：当你通过 store.state.foo.value 期望获取父模块 foo 的 state 的 value 值时，你拿到的却是当前子模块 value 的配置对象，即父模块的 state 的 value 属性被遮蔽了，所以要报错提示。
 
-然后执行 `Vue.set(parentState, moduleName, module.state)`，给父模块的state对象添加响应式属性，属性名为当前模块名，属性值为模块的state对象。
+所以，模块的 key 名不能和父模块的 state 对象中的 key 冲突
 
-我们先看看_withCommit这个Store的原型方法
+`Vue.set(parentState, moduleName, module.state)`
+
+这是利用 Vue.set 方法给父模块的 state 对象添加响应式属性，属性名为当前模块名，属性值为模块的 state 对象。
+
+这么做后，用户就能通过当前模块名，读取它父模块的 state 的对应模块名，获取到当前模块的 state 对象。并且这样的 state 里的属性和 Vue 的 data 对象中的属性一样，是响应式的。 
+
+我们回头看看 _withCommit 这个 Store 的原型方法
 
 ```js
 _withCommit (fn) {
@@ -681,9 +687,11 @@ _withCommit (fn) {
   this._committing = committing
 }
 ```
-_withCommit接收函数fn，首先把当前store的_committing置为true，然后执行fn，再把 _committing属性值恢复到原来的值。可见，_withCommit的作用是让fn执行的过程中，_committing的值为true。
+_withCommit 接收函数 fn，首先把当前 store 的 _committing 置为 true，然后执行 fn，再把 _committing 恢复为原来的值。可见，_withCommit 的作用是，保证了 fn 执行的过程中，_committing 的值为 true。
 
-因为fn中有修改state的操作。所有合法的修改state的操作发生时，都将它放入_withCommit的回调fn，让这个过程的_committing为true，其他时刻都默认为false，因此任何非法修改state的动作都会报错提示："do not mutate vuex store state outside mutation handlers."
+为什么要这么做？
+
+因为 fn 中有修改 state 的操作：通过 Vue.set 给父 state 对象添加响应式属性。所有合法的修改 state 的操作，都会放在 _withCommit 的回调 fn 中进行，保证了这个过程的 _committing 为 true，其他时刻都为 false，因此任何不合法修改 state 的动作都会报错提示：不要试图在 mutation handler 之外改动 state 对象。
 
 接下来，注册 mutation 等：
 
@@ -696,15 +704,16 @@ module.forEachMutation((mutation, key) => {
 })
 ```
 
-首先执行makeLocalContext方法，传入store对象，当前模块的命名空间，当前的模块路径path，返回值赋给local和module.context。
+首先执行 makeLocalContext 方法，传入 store 对象，当前模块的命名空间，当前的模块路径 path，返回值赋给 local 和module.context。
 
-我们看看 makeLocalContext 的实现：
+makeLocalContext 是干嘛的：
 
 ```js
 function makeLocalContext (store, namespace, path) {
   const noNamespace = namespace === ''
   const local = {
-    // ...
+    // dispatch:....
+    // commit:....
   }
   Object.defineProperties(local, {
     getters: {
@@ -719,9 +728,10 @@ function makeLocalContext (store, namespace, path) {
   return local
 }
 ```
-首先用noNamespace这个布尔值，代表该模块是否使用了命名空间。然后创建一个对象local，里面定义了dispatch、commit方法和getters、state属性，最后返回出local对象
 
-我们看看local的dispatch方法：
+首先用 noNamespace 变量的真假，代表该模块是否使用了命名空间。然后创建一个对象 local，里面定义了dispatch、commit方法，然后再通过 Object.defineProperties 定义它的两个属性 getters 和 state，最后返回出 local 对象。
+
+我们先看 local 的 dispatch 方法：
 
 ```js
 const local = {
@@ -737,14 +747,19 @@ const local = {
       }
     }
     return store.dispatch(type, payload)
-  }
+  },
 }
 ```
-如果该模块没有使用命名空间，则local.dispatch直接使用store对象的dispatch方法。
+我们知道，dispatch 方法用来分发 action 的。
 
-如果该模块存在自己的命名空间，则定义local.dispatch为一个新的函数，函数可以接收三个参数：_type：即action的名称、_payload：载荷对象、_options：配置对象，这三个参数传入unifyObjectStyle函数执行，返回值赋给args。
+如果当前模块没有使用命名空间，则直接把 store 对象的 dispatch 方法赋给 local.dispatch。
 
-我们看看unifyObjectStyle：
+如果当前模块有自己的命名空间，则重新定义 local.dispatch 方法，它可以接收三个参数：
+1. _type：即 action 的名称
+2. _payload：载荷对象
+3. _options：配置对象
+
+这 3 个参数会先传入 unifyObjectStyle 函数执行，返回值赋给 args。unifyObjectStyle 其实是对参数做归一化处理的：
 
 ```js
 function unifyObjectStyle (type, payload, options) {
@@ -759,13 +774,12 @@ function unifyObjectStyle (type, payload, options) {
   return { type, payload, options }
 }
 ```
-unifyObjectStyle函数的作用是对参数做归一化处理：如果第一个参数是对象且存在type属性，则传入的第二个参数作为options，第一个参数作为payload对象，type取第一个参数的type属性
 
-开发环境下，如果type不是字符串，抛出错误。
+如果第一个参数接收的是对象且存在 type 属性，则将传入的第二个参数作为 options ，第一个参数作为 payload，type 则取第一个参数的 type 属性
 
-最后返回出包含type, payload, options的对象。
+开发环境下，如果 type 不是字符串，抛出错误，也就是 action mutation 等的命名需要是一个字符串。
 
-回到local.dispatch方法，args拿到处理好的参数对象后，从中解构出type, payload, options变量。
+最后返回出包含 type, payload, options 的对象。回到 local.dispatch 方法，args 拿到这个参数对象后，从中解构出 type, payload, options 变量。
 
 ```js
 const { payload, options } = args
@@ -780,13 +794,15 @@ if (!options || !options.root) {
 return store.dispatch(type, payload)
 ```
 
-如果options不存在或options对象里没有root，则将type改为命名空间字符串和type的拼接。
+如果 options 不存在 或 options 对象里没有 root，则将 type 改为命名空间字符串和 type 的拼接后的结果，说明用户没有强制规定把该 action 注册在全局。
 
-开发环境下判断，如果store对象的存放actions的_actions对象里，没有名为type的action，就报错提示并直接返回。
+在开发环境下，判断，如果 store 对象的存放 actions 的 _actions 对象里，没有名为 type 的 action，这说明用户通过 dispatch 想要分发的这个 action 不存在，于是报错提示，并直接返回。
 
-最后返回出store对象的dispatch的执行结果，传入的是结合了命名空间的全局type，和payload载荷对象。
+最后返回出 store.dispatch 的执行结果，传入的是考虑了命名空间的本地 type，和 payload 载荷对象。
 
-再来看local.commit，如果当前模块没有命名空间，直接用store.commit，否则定义local.commit方法：
+到此，你会发现，store.dispatch 和 local.dispatch 的区别是前者所有传入的 type 都是不带命名空间的，后者执行传入的 type 是考虑了命名空间的，是本地的 type。
+
+再来看 local.commit，我们知道，commit 是提交 mutation 的方法。如果当前模块没有命名空间，直接将 store.commit 赋给 local.commit，否则重新定义 local.commit：
 
 ```js
 commit: noNamespace ? store.commit : (_type, _payload, _options) => {
@@ -803,13 +819,21 @@ commit: noNamespace ? store.commit : (_type, _payload, _options) => {
   store.commit(type, payload, options)
 }
 ```
-commit是提交mutation的方法，定义的新函数接收三个参数：_type：mutation的名字，_payload：载荷对象，_options：配置对象。经过unifyObjectStyle函数处理成对象args。从args对象中解构出type, payload, options变量。
 
-如果options不存在或options对象里没有root，就将type改写命名空间字符串和type的拼接。
+定义的这个新函数可以接收三个参数：
+1. _type：mutation的名字
+2. _payload：载荷对象
+3. _options：配置对象
 
-开发环境下判断，如果store对象的存放mutation的_mutations对象里，没有名为type的mutation，就报错提示并直接返回。
+这 3 个参数会传入 unifyObjectStyle 函数做归一化处理，返回值赋给 args。
 
-最后返回出store对象的commit的执行结果，传入的是结合了命名空间的全局type，和payload载荷对象。
+然后从 args 对象中解构出 type, payload, options 变量。
+
+如果 options 不存在或 options 对象里没有 root，说明用户没有强制规定该 mutation 注册在全局，所以将 type 会改写命名空间字符串和 type 的拼接结果。
+
+在开发环境下，会判断，如果 store 对象的存放 mutation 的 _mutations 对象里，没有名为 type 的 mutation，就报错提示，告诉用户你要提交的 mutation 不存在，然后直接返回。
+
+最后 local.commit 返回出 store.commit 的执行结果，传入的是考虑了命名空间的本地 type，和 payload 载荷对象。store.commit 和 local.commit 的区别是前者所有传入的 type 都是不带命名空间的
 
 ```js
 Object.defineProperties(local, {
@@ -824,17 +848,18 @@ Object.defineProperties(local, {
 })
 return local
 ```
-用Object.defineProperties给local对象定义两个响应式属性：getters和state。
 
-读取local.state时，会触发state的get方法，返回getNestedState的执行结果，getNestedState获取的是当前模块的state对象。
+接着，通过 Object.defineProperties 给 local 对象定义两个响应式属性：getters 和 state。
 
-读取local.getters时，会触发getters的get方法，如果当前模块没有命名空间，则get方法执行直接返回store.getters，如果有命名空间，get方法执行返回makeLocalGetters函数的执行结果，传入的是store对象和当前的命名空间。
+读取 local.state 时，会触发 state 的 get 方法，返回 getNestedState 函数的执行结果，前面已经分析过，getNestedState 函数是用来获取当前模块的 state 对象。state 这个响应式属性并没有设置 set 方法，说明它是一个只读属性，不能直接对它进行修改。
 
-看看makeLocalGetters函数：
+读取 local.getters 时，会触发 getters 的 get 方法，如果当前模块没有命名空间，则 get 方法会直接返回 store.getters，没有命名空间意味着，从全局 store 拿 getters 就行，如果有命名空间，get 方法执行返回 makeLocalGetters 函数的执行结果，传入的是 store 对象和当前的命名空间。
+
+看看 makeLocalGetters 函数：
 
 ```js
 function makeLocalGetters (store, namespace) {
-  if (!store._makeLocalGettersCache[namespace]) {
+if (!store._makeLocalGettersCache[namespace]) {
     const gettersProxy = {}
     const splitPos = namespace.length
     Object.keys(store.getters).forEach(type => {
@@ -850,43 +875,47 @@ function makeLocalGetters (store, namespace) {
   return store._makeLocalGettersCache[namespace]
 }
 ```
-store对象有个_makeLocalGettersCache属性，是一个对象专门存放生成的本地getters的缓存，根据namespace查看缓存对象中有没有，如果有就直接返回缓存值，如果没有就执行if语句块。
+store 对象有个 _makeLocalGettersCache 属性，是一个对象，专门缓存生成的本地 getters。
 
-进入if语句块，首先定义一个getters的代理对象gettersProxy，然后获取命名空间字符串的长度splitPos。然后遍历store.getters对象，如果type字符串从开头截取到索引splitPos和命名空间字符串不相等，说明store.getters中该getter的type的前面的部分不匹配当前模块的命名空间，直接返回。
+首先看这个缓存对象中是否存在当前命名空间，如果有，就直接返回缓存值，如果没有就执行if语句块。
 
-然后获取本地的type，即本地的getter名，赋给localType，在gettersProxy对象上定义localType只读属性，读取它时返回store.getters中全局type对应的getter。
+if语句块中，首先定义一个空对象 gettersProxy，然后获取命名空间字符串的长度，赋给 splitPos。
 
-遍历完store.getters后，gettersProxy就存放着属性名为localType的，属性值为对应的getter
+然后遍历 store.getters 对象，如果将 type 字符串从开头 slice 到 splitPos 位置，和命名空间字符串不相等，直接返回。这样在遍历的过程就留下了当前模块的 getter
 
-将gettersProxy赋给store._makeLocalGettersCache[namespace]，_makeLocalGettersCache对象中，namespace就对应的属性值是一个对象，存放的是本地的getter名和对应的getter
+然后获取本地的type，即该 getter 的 key 名，赋给 localType，在 gettersProxy 对象上定义 localType 只读属性，读取它时返回 store.getters 中完整的考虑了命名空间的 type 对应的 getter。
 
-综上，makeLocalGetters就是根据命名空间生成对应的本地getters对象，可以通过本地type访问全局type对应的getter。到此local对象填充完毕，makeLocalContext函数返回local对象
+遍历完 store.getters 后，gettersProxy 对象就存放很多键值对，所有本地的 type，和它对应的getter。
+
+将 gettersProxy 赋给 store._makeLocalGettersCache[namespace]，_makeLocalGettersCache对象中，namespace 命名空间，对应的属性值是一个对象，存放的是本地的 getter 名和对应的 getter。最后返回出 store._makeLocalGettersCache[namespace]
+
+由此可见，makeLocalGetters 就是根据命名空间，在全局 getters 对象中找出当前命名空间对应的getter，创建并返回一个键是本地 getter 名，值是对应的 getter的对象。于是可以通过本地 type 就能访问全局 type 对应的 getter。
+
+到此 local 对象填充完毕，makeLocalContext 函数返回 local 对象
 
 ```js
 const local = module.context = makeLocalContext(store, namespace, path)
 ```
 
-回到installModule函数，现在makeLocalContext函数返回的local对象，赋给了变量local 和 module.context，这个local对象里有为当前模块设置局部化的dispatch、commit方法，和getter和state属性
+回到 installModule 函数，现在 local 对象里就有：为当前模块设置的局部化的（本地的）dispatch、commit 方法，和 getter 和 state 属性。
 
-然后调用Module的原型方法forEachMutation，将回调函数传入执行
+接下来是注册 mutation，调用 Module 的原型方法 forEachMutation，将回调函数传入执行
 
 ```js
 module.forEachMutation((mutation, key) => {
   var namespacedType = namespace + key;
   registerMutation(store, namespacedType, mutation, local);
 })
-```
 
-```js
 forEachMutation (fn) {
   if (this._rawModule.mutations) {
     forEachValue(this._rawModule.mutations, fn)
   }
 }
 ```
-forEachMutation 中，判断如果当前模块的配置对象传了mutations，就调用forEachValue遍历mutations对象，对每个键值对执行fn。
+我们先看 forEachMutation 函数，它会判断如果当前模块的配置对象传了 mutations，就调用 forEachValue 遍历这个 mutations 对象，对每个键值对执行 fn。
 
-在fn中，首先将当前遍历的mutation所在的模块的命名空间字符串，拼接上，自己的key名，赋给namespacedType，它就是结合了namespace的mutation名。
+我们看看这个传入的 fn，它首先将当前模块的命名空间字符串，拼接上，当前遍历的 mutation 的 key 名，赋给 namespacedType，即结合了命名空间的 mutation 名。
 
 调用 registerMutation 进行 mutation 方法的注册，我们看看registerMutation函数：
 
@@ -900,27 +929,30 @@ function registerMutation (store, type, handler, local) {
 ```
 结合`registerMutation(store, namespacedType, mutation, local);`来看
 
-registerMutation函数可以接收4个参数：
+registerMutation 函数可以接收 4 个参数：
 
-1. store：store对象，即唯一的new Vuex.Store创建的store实例
-2. type：即namespacedType，拼接了命名空间字符串的全局的mutation名
-3. handler：mutation的属性值，即mutation对应的处理函数。
-4. local ：local对象包含给当前模块设置的局部化的dispatch、commit方法，和getters、state属性
+1. store：store 对象，即 new Vuex.Store 创建的 store 实例
+2. type：接收的是 namespacedType：拼接了命名空间字符串的全局的 mutation 名
+3. handler：mutation 的属性值，即 mutation 对应的处理函数。
+4. local：即 makeLocalContext 函数返回的对象，包含为当前模块设置的局部化的 dispatch、commit 方法，和 getters、state 属性
 
-` var entry = store._mutations[type] || (store._mutations[type] = []);`
+`const entry = store._mutations[type] || (store._mutations[type] = [])`
 
-已知store实例的属性_mutations，是个存放mutation的数组，如果融合了命名空间的全局type在store._mutations对象中，找不到对应的mutation，那就将store._mutations[type]初始化为一个空数组，用来存放type对应的mutation。注意，store._mutations[type]和entry指向同一个内存空间。
+我们知道 store._mutations，是个存放 mutation 的对象，如果考虑了命名空间的全局 type 在 store._mutations 对象中，没有对应的 mutation，那就将 store._mutations[type] 初始化为一个空数组，用来存放 type 对应的 mutation。然后 store._mutations[type] 的引用赋给 entry
+
+继续看 registerMutation，接下来：
 
 ```js
 entry.push(payload => {
   handler.call(store, local.state, payload);
 })
 ```
-这是往store._mutations[type]数组推入一个mutation函数，它执行就是传入的handler的执行，handler执行时this指向store对象，注意，handler执行时接收的是local.state，局部化的state，和mutation函数接收的payload载荷对象。
 
-于是遍历完当前模块的mutations对象，给每一个type都注册了对应的mutation函数，存放在store._mutations[type]数组中
+这是往 store._mutations[type] 数组推入一个 wrappedMutationHandler 函数，它是对用户传的 mutation 函数的一层包装，它执行就会执行用户配置的 mutation 处理函数，并执行时 this 指向 store 对象，注意，handler 执行时接收的是 local.state，是局部化的 state，和 mutation 函数接收的 payload 载荷对象。
 
-接着，是action的注册
+于是遍历完当前模块的 mutations 对象后，store._mutations 对象中，每一个 mutation 名都对应了一个数组，数组里存放了对应的 mutation 函数。
+
+接着，是 action 的注册
 
 ```js
 module.forEachAction((action, key) => {
@@ -935,13 +967,14 @@ forEachAction (fn) {
   }
 }
 ```
-forEachAction函数中，如果当前模块的配置对象传了actions，则调用forEachValue遍历actions，执行回调函数fn，fn接收action和对应的key。
 
-在fn中，如果用户在action配置对象中传了root: true，说明他想在带命名空间的模块中注册全局的action，那么直接把key赋给type，否则还是空间字符串拼接key
+forEachAction 函数中，如果当前模块的配置对象传了 actions 对象，则调用 forEachValue 遍历 actions 对象，执行回调函数，回调函数接收属性值 action 和对应的 key。
 
-用户配置actions时，可以写成对象形式，对象的handler属性传处理回调，也可以直接写成函数，因此优先获取第一个参数中的handler属性值，如果没有，直接取第一个参数。
+在回调函数中，如果用户在 action 配置对象中传了 root: true，说明他想在这个带命名空间的模块中注册全局的 action，那么直接把 key 赋给 type，否则还是命名空间字符串拼接 key。
 
-调用registerAction进行action的注册。
+用户配置 actions 时，可以写成对象形式，然后对象的 handler 属性传处理函数。也可以直接写成函数，因此优先获取第一个参数中的 handler 属性值，如果没有，直接取第一个参数作为 handler。
+
+调用 registerAction 进行 action 的注册。
 
 ```js
 function registerAction (store, type, handler, local) {
@@ -969,13 +1002,17 @@ function registerAction (store, type, handler, local) {
   })
 }
 ```
-首先判断store._actions这个对象是否存在type属性对应的数组，如果没有，则初始化为空数组，它存放type对应的action，向数组中推入一个包裹aciton的处理函数，即wrappedActionHandler。
+首先判断 store._actions 这个对象是否存在当前 action 名对应的数组，如果没有，则初始化为空数组，用来存放 action 名对应的action。
 
-wrappedActionHandler中：首先会调用用户设置的action的handler，调用结果赋给res缓存起来，handler执行时的this指向store对象，handler接收一个对象，它包含和store对象一样的方法和属性，称它为context对象，还接收wrappedActionHandler传入的payload。
+然后向这个数组中推入一个 wrappedActionHandler 函数。它是对用户传的 action 函数的封装。
 
-然后判断res，如果不是promise实例，就将它包裹成resolve值为res的promise实例。最后返回res。(不考虑使用了devtools的情况)
+wrappedActionHandler 函数中：首先会调用用户配置的 action 的 handler 函数，返回值赋给 res 缓存起来，执行时的 this 指向 store 对象，handler 函数的第二个参数接收一个对象，它包含和 store 对象一样的属性名，称它为 context 对象，还接收用户传入的 payload 载荷对象。
 
-接着，注册getter
+注意这个 context 对象，它和 store 对象的不同之处在于：它的state getters commit dispatch 属性保存的是局部化的属性和方法，不是全局的。
+
+执行了 handler 后，判断返回值 res，如果它不是 promise 实例，就将它变成成功值为 res 的 promise 实例，这说明 Vuex 是期待用户写 action 函数时返回出一个 promise 实例的，如果没有返回，也会包裹成一个 promise 实例返回。(使用了 devtools 的情况不作分析了)
+
+接着，注册 getter
 
 ```js
 module.forEachGetter((getter, key) => {
@@ -989,9 +1026,9 @@ forEachGetter (fn) {
   }
 }
 ```
-forEachGetter函数中，如果当前模块的配置对象中传了getters，遍历它，执行回调函数fn。
+forEachGetter 函数中，如果当前模块的配置对象中传了 getters，遍历这个 getters 对象，执行回调函数 fn。
 
-在fn中，将当前模块的命名空间和key结合起来，赋给namespacedType，调用registerGetter注册getter
+在回调函数中，首先获取当前模块的命名空间和 key 拼接后的字符串，赋给 namespacedType，然后调用 registerGetter 注册 getter
 
 ```js
 function registerGetter (store, type, rawGetter, local) {
@@ -1011,13 +1048,13 @@ function registerGetter (store, type, rawGetter, local) {
   }
 }
 ```
-registerGetter函数中，首先判断，如果store._wrappedGetters对象中，全局type对应的getter已经存在，就报错提示：你这个getter的key名字重复了。然后直接返回
+registerGetter 函数中，首先判断，如果 store._wrappedGetters 对象中，全局 type 对应的 getter 已经存在，就报错提示：你注册的这个 getter 名字出现重复。然后直接返回。
 
-如果type对应的getter不存在，那就往store._wrappedGetters对象中添加属性type和对应的wrappedGetter方法。它是rawGetter方法的封装。
+如果 type 对应的 getter 不存在，那就往 store._wrappedGetters 对象中添加属性 type 和对应的 wrappedGetter 方法。它是 rawGetter 方法的封装。
 
-rawGetter就是遍历getters对象时，传入回调的getter方法。rawGetter执行传入的是local对象的state、getters、和根state，根getters。
+rawGetter 就是当前遍历的用户配置的 getter 函数。rawGetter 执行传入的是 local 对象的state、getters、和根state，根getters。
 
-mutation、action、getter都注册完了，到了installModule的最后一步，遍历当前模块的子模块，进行子模块的安装：
+到此 mutation、action、getter 都注册完了，来到了 installModule 的最后一步，遍历当前模块的子模块，进行子模块的安装：
 
 ```js
 module.forEachChild((child, key) => {
@@ -1028,9 +1065,9 @@ forEachChild (fn) {
 }
 ```
 
-当前的模块调用forEachChild方法，将回调函数传入，遍历当前模块的_children数组，它存放着它的子模块对象，执行fn，fn中递归调用installModule去安装子模块，传入的分别是：store对象，根state对象，子模块对象的path，子模块对象，和hot。
+调用 forEachChild 方法，将回调函数传入，遍历当前模块的 _children 数组，数组里存放着它的子模块对象，执行回调，回调中会递归调用 installModule 去安装子模块，传入的分别是：store对象，根state对象，子模块对象的 path，子模块对象本身，和hot。
 
-这样，子模块也得到了安装，即子模块的mutation、action、getter得到了注册。
+这样，子模块也得到了安装，即注册了子模块的 mutation、action、getter。
 
 ## resetStoreVM
 
@@ -1039,13 +1076,12 @@ Vuex文档的原话：
 
 >Vuex 的状态存储是响应式的。当 Vue 组件从 store 中读取 state 时，若 store 中的 state 发生变化，那么相应的组件也会相应地得到更新。
 
-那Vuex是如何把state对象转成响应式的数据呢？原因在下面这句：
+也就是，state 对象中的属性被观测了，值的变化会触发监听它的依赖。那 Vuex 是如何把 state 对象转成响应式数据呢？靠的是这句：
 
 ```js
 resetStoreVM(this, state)
 ```
-
-传入的this是store对象，state是根state，我们看看 resetStoreVM：
+根据之前分析 Store 构造函数我们知道，传入 resetStoreVM 的 this 是 store 对象，state 是根 state，我们看看 resetStoreVM：
 
 ```js
 function resetStoreVM (store, state, hot) {
@@ -1085,7 +1121,7 @@ function resetStoreVM (store, state, hot) {
 }
 ```
 
-逐段分析：
+代码较多，逐段分析：
 
 ```js
 const oldVm = store._vm
@@ -1097,15 +1133,15 @@ forEachValue(wrappedGetters, (fn, key) => {
   computed[key] = partial(fn, store)
   Object.defineProperty(store.getters, key, {
     get: () => store._vm[key],
-    enumerable: true
+    enumerable: true // for local getters
   })
 })
 ```
-因为函数中要创建新的Vue实例赋给store._vm，创建前先将store._vm赋给 oldVm，保存一份旧值
+因为在 resetStoreVM 函数中会创建新的 Vue 实例赋给 store._vm，创建前要先将 store._vm 赋给 oldVm，即 oldVm 保存了旧值
 
-给store对象上添加getters属性，值为一个空对象，添加_makeLocalGettersCache属性，值为一个空对象。定义变量wrappedGetters，指向store._wrappedGetters，里面存放的是已经注册好的getter方法。再定义一个computed变量，指向一个空对象。
+然后，给 store 对象上添加 getters 属性，值为一个空对象，添加 _makeLocalGettersCache 属性，值为一个空对象。store._wrappedGetters 赋给变量 wrappedGetters，它里面存放的是注册好了的 getter 方法。再定义一个 computed，指向一个空对象。
 
-遍历wrappedGetters对象，给computed对象添加方法，key为getter的名称，值为partial函数的返回值。
+遍历 wrappedGetters 对象里注册好的 getter 方法，往 computed 对象添加属性，属性名为 getter 名，属性值为 partial 函数的返回值，下面看看 partial 函数。
 
 ```js
 function partial (fn, arg) {
@@ -1115,9 +1151,11 @@ function partial (fn, arg) {
 }
 ```
 
-注意传入 partial 的是getter函数和store对象，partial返回一个新的函数，函数执行实际执行的是传入的fn，即getter函数，getter函数接收store对象执行。
+传入 partial 的是注册好的 getter 函数和 store 对象，返回一个新的函数，函数执行实际执行的是传入的 fn，即 getter 函数，getter 函数接收 store 对象执行。
 
-也就是，computed对象所添加的getter方法是被包裹了一层的，这么做的好处是，getter在函数外部执行，也能通过闭包引用了函数作用域中的store这个私有形参，这个store不会随着resetStoreVM执行结束而销毁。
+也就是，不是直接给 computed 对象所添加 getter 方法，而是包裹一层的 getter，这么做的好处是，getter 在函数外部执行时，能通过闭包引用 partial 函数作用域中的 store 这个形参变量，因为形成了闭包，所以 store 不会随着 partial 函数执行结束而销毁。
+
+在遍历 wrappedGetters 对象的过程中，除了往 computed 对象中添加包裹后的 getter，还要:
 
 ```js
 Object.defineProperty(store.getters, key, {
@@ -1125,9 +1163,9 @@ Object.defineProperty(store.getters, key, {
   enumerable: true
 })
 ```
-遍历过程中，通过Object.defineProperty在store.getters添加getter属性，读取它的值时会执行它的get函数，返回store._vm[key]，即返回vue实例上的计算属性
+store.getters 还是一个空对象，通过 Object.defineProperty 给它添加只读属性，属性名是 getter 名，读取属性的值时，会触发它的 get 方法，返回 store._vm[key]，即转而读取 Vue 实例上的同名属性。
 
-store._vm上为什么会有xxx属性呢，原因是：
+问题来了，为什么 store._vm 上会有 getter 的同名属性呢，原因是接下来这几句：
 
 ```js
 const silent = Vue.config.silent
@@ -1140,22 +1178,22 @@ store._vm = new Vue({
 })
 Vue.config.silent = silent
 ```
-首先获取Vue.config.silent的值。用户在使用Vue时，如果将它配置为真，是为了取消Vue所有的日志与警告。
+首先获取 Vue.config.silent 的值并缓存给变量 silent。如果用户在使用 Vue 时，将它配置为真，代表取消 Vue 所有的日志与警告。
 
-将Vue.config.silent置为true，保证创建Vue实例时，不出现Vue的日志与警告，创建完Vue实例后，将它恢复为原来的值
+将 Vue.config.silent 置为 true，保证接下来创建 Vue 实例时，不会打印 Vue 的日志与警告，创建完 Vue 实例后，将它恢复为原来的值。因为这是“借用”了 Vue 的 API，实例化的过程可能会存在一些不严格的模式，但不希望因此报错。
 
-实例化Vue，data选项传入$$state: state，$$state成了响应式属性，根state对象会被深度观测，即根state对象中的属性被转成响应式属性，并且我们知道Vue实例会直接代理Vue实例的_data对象，所以store._vm会代理store._vm._data中的数据，所以访问store._vm.$$state就相当于访问store._vm._data.$$state。
+实例化 Vue，data 选项传入$$state: state，$$state 变成了响应式属性，它的属性值：根 state 对象会被深度观测，即根 state 对象中的属性同样变成响应式属性，并且我们知道 Vue 实例会直接代理 Vue 实例的 _data 对象，即 store._vm 这个 Vue 实例会代理 store._vm._data 中的数据，因此，访问 store._vm.$$state 属性，就相当于访问 store._vm._data.$$state 属性。
 
-Store构造函数有state这个原型属性：
+而 Store 构造函数有 state 这个原型属性，读取它会触发 get state 方法：
 
 ```js
 get state () {
   return this._vm._data.$$state
 }
 ```
-我们知道所有组件实例的$store属性值，都指向同一个根store对象，读取this.$store.state的话，就是读取 store.state，会触发state的get函数，返回的是store._vm._data.$$state
+我们知道，安装了 Vuex 插件后，所有 Vue 组件实例的 $store 属性值，都指向同一个根 store 对象。因此，读取 vm.$store.state 的话，就是读取 store.state，会触发 state 的 get 函数，返回的是 store._vm._data.$$state
 
-即响应化了state后，访问store.state都是返回vm实例的data中的响应式数据
+所以，state 对象响应式化后，访问 store.state 实际返回 vm 实例的 data 中的响应式数据
 
 ```js
 store._vm = new Vue({
@@ -1165,33 +1203,41 @@ store._vm = new Vue({
   computed
 })
 ```
-因为computed对象存了getter方法，把computed对象作为computed选项传入new Vue后，被初始化为计算属性。
+因为 computed 对象存了 getter 方法，把 computed 对象作为 computed 选项传入 new Vue 后，getter 被初始化为计算属性。
 
-比如访问this.$store.getters.xxx时，即访问store.getters.xxx，我们已经给store.getters定义了响应式只读属性，所以会触发xxx属性的get函数，返回store._vm.xxx，为什么store._vm.xxx能获取到对应的getter方法呢，因为xxx已经被注册为Vue实例store._vm的计算属性了，所以store._vm.xxx可以访问到xxx的getter方法。
+比如，访问某个 Vue 实例 vm.$store.getters.xxx 时，即访问 store.getters.xxx，store.getters 对象已经通过 Object.defineProperties 添加了响应式只读属性 xxx，所以会触发 xxx 的 get 函数，返回 store._vm.xxx，为什么 store._vm.xxx 能获取到对应的 getter 方法呢，因为 xxx 已经被注册为 Vue 实例 store._vm 的计算属性了，所以 store._vm.xxx 可以访问到 xxx 的getter方法。
 
 ## Vuex.Store实例方法的实现
 ### commit
 
-更改 store中的state的唯一的方法是提交 mutation，mutation都有一个字符串的type和一个handler回调函数，handler做的就是改变state，并且会接收state作为第一个参数，比如：
+Vuex 的设计是：更改 store 中的 state 只能通过提交 mutation，mutation 有一个 type 字符串和一个处理函数 handler，handler 就是用来改变 state，并且它接收 state 作为第一个参数，比如：
 ```js
 const store = new Vuex.Store({
   state:{
     a:1
   }
   mutations:{
-    change(state){
+    change(state) {
       state.a++
     }
   }
 })
 ```
-这其实就像一种事件的注册，当你调用store.commit触发"change"这个type类型的mutation时，会调用它的handler回调函数，注意，并不能直接调用mutation的handler
+这其实就像注册事件的回调函数，当你调用 store.commit 触发 type 为 "change" 的 mutation 时，会触发它的 handler 回调，注意，mutation 的 handler 并不能直接被调用。
+
+commit 是 Store 构造函数的原型方法，用户调用 commit 提交 mutation 有不同的传参方式，比如：
 
 ```js
-store.commit('change')
+store.commit('change') // 传 mutation 的 type 字符串
+
+store.commit({ // 传一个包含 type 的对象
+  type:'change',
+  amount: 10
+})
+
 ```
 
-commit是Store构造函数的原型方法，作用是提交mutation，我们看看它的实现：
+我们看看 commit 的实现：
 
 ```js
 commit (_type, _payload, _options) {
@@ -1213,21 +1259,15 @@ commit (_type, _payload, _options) {
   // ...
 }
 ```
-commit最多接收3个参数：
+commit 可以接收 3 个参数：
 
-_type：要提交的mutation的type字符串，可以称它为mutation名
-_payload：载荷(一般用户会传一个对象)
-_options：配置对象，可以传root: true，它允许在命名空间模块里提交根的mutation
+1. _type：要提交的目标 mutation 的 type 字符串，即 mutation 名
+2. _payload：载荷对象（一般用户会传）
+3. _options：配置对象，比如可以传 root: true，它允许在命名空间模块里提交根的 mutation
 
-commit提交mutation的另一种方式是直接传一个包含type属性的对象：
-
-```js
- store.commit({
-   type:'change',
-   amount: 10
- })
 ```
-我们分段来看看commit的代码：
+
+我们分段来看看 commit 的代码：
 
 ```js
 const {type, payload, options} = unifyObjectStyle(_type, _payload, _options)
@@ -1240,11 +1280,11 @@ if (!entry) {
   return
 }
 ```
-我们已经介绍过unifyObjectStyle函数，它对参数做统一化处理，从执行结果中解构出type, payload, options。
+unifyObjectStyle 函数已经介绍过了，它对参数做统一化处理，从执行结果中可以解构出 type, payload, options 变量。
 
-创建一个包含type和payload属性的对象，赋给mutation。获取store实例的_mutations对象中的type对应的mutation数组，赋给entry
+创建一个包含 type 和 payload 的对象，赋给 mutation。获取 store 实例的 _mutations 对象中的 type 对应的 mutation 数组，赋给 entry。这个数组存放的是 type 这个 mutation 的回调函数。
 
-如果entry不存在，在开发环境下，要打印警告：你传的type没有对应的mutation，然后直接返回
+如果 entry 不存在，说明这个 mutation 没有注册过，所以无法调用 store.commit 去提交这个 mutation，在开发环境下要打印警告：未知的 mutation type，然后直接返回
 
 ```js
 if (!entry) {
@@ -1254,9 +1294,8 @@ if (!entry) {
   return
 }
 ```
-如果 entry不存在，说明这个mutation没有注册过，所以你无法调用 store.commit 去提交这个mutation，会给你一个报警提示：未知的mutation type，然后直接返回
-
 接下来，继续看：
+
 ```js
 this._withCommit(() => {
   entry.forEach(function commitIterator (handler) {
@@ -1264,9 +1303,10 @@ this._withCommit(() => {
   })
 })
 ```
-我们前面分析过 _withCommit做的事是把_committing先置为true，然后执行回调函数，执行完后再把_committing 恢复到原来的值。
 
-我们先来看回调做了什么事：遍历数组entry，即this._mutations[type]数组，将数组每一个handler执行，传入用户调用commit时传入的payload。也就是，将type对应的handler(不管有几个)都执行一遍。
+前面分析过 _withCommit 作用是把 执行回调函数时，保证了 _committing 为 true，执行完回调后再把 _committing 恢复到原来的值。
+
+我们看看回调做的事：遍历数组 entry，即 this._mutations[type] 数组，将数组每一个 handler 执行，传入用户调用 commit 时传入的 payload。即，type 对应的 handler 都执行一遍。
 
 接下来：
 ```js
@@ -1301,24 +1341,26 @@ genericSubscribe执行返回一个函数，函数中会找到fn在subs数组中�
 
 ### dispatch
 
-dispatch是Store的原型方法，作用是触发action。action通常进行异步操作，store.dispatch就用来处理action的处理函数执行返回的promise，并且store.dispatch执行也是返回promise。
+dispatch 和 commit 一样也是 Store 的原型方法，但它的作用是触发 action。action 方法通常包含异步操作， store.dispatch 会处理 action 方法返回的 promise，并且 store.dispatch 也会返回 promise。
 
 ```js
+// 用户一般这么写 action 方法，用 promise 实例管控异步操作
 actions:{
   actionA({ commit }){
-    return new Promise((resolve,reject)=>{
+    return new Promise((resolve, reject)=>{
       // 异步操作
     })
   }
 }
 ```
-用store.dispatch分发action你可以这么写
+那么用 store.dispatch 分发 action 用户可以这么写：
 ```js
 store.dispatch('actionA').then(()=>{
   // ....
 })
 ```
-好的，现在看看store.dispatch的实现，比较长，分段看吧：
+
+现在看看 dispatch 的实现，代码比较长，分段看：
 ```js
 dispatch (_type, _payload) {
   const { type, payload } = unifyObjectStyle(_type, _payload)
@@ -1333,15 +1375,16 @@ dispatch (_type, _payload) {
   // ....
 }
 ```
-调用unifyObjectStyle函数对dispatch函数接收的参数做归一化。
+和前面的一样，先调用 unifyObjectStyle 函数对 dispatch 函数接收的参数做归一化。
 
-然后变量type, payload取到归一化后的type, payload，把他们放进一个对象，然后赋给变量action
+然后变量type, payload 解构到归一化后的 type, payload，把他们放进一个对象，赋给变量action。
 
-定义entry，指向this._actions[type]，它是存放type对应的action方法的数组。
+定义 entry ，指向 this._actions[type]，它是存放 type 对应的 action 方法的数组。
 
-如果entry不存在，说明该type的action还没注册，报警提示；未知的action type，然后直接返回
+如果 entry 不存在，说明该 type 的 action 还没注册，报警提示；未知的 action type，然后直接返回
 
 接着继续：
+
 ```js
 try {
   this._actionSubscribers
@@ -1354,42 +1397,51 @@ try {
   }
 }
 ```
-action的订阅函数。。。算了，这里我不想分析了，还没用过它
+action 的订阅函数。。。算了，这里我不想分析了，还没用过它。
 
 再接下来：
+
 ```js
 const result = entry.length > 1
   ? Promise.all(entry.map(handler => handler(payload)))
   : entry[0](payload)
 return result.then(res => {
-  // 这是。。。先不太了解，做了一个try catch
+  // ...
   return res
 })
 ```
-如果entry数组的长度>1，说明type对应的action的处理函数有多个(同名action传了多个)，可能每个回调就管控一个异步操作，我们不能单纯地遍历执行action，而是要把每个action的执行结果(promise对象)放到一个数组里，传给Promise.all，给它管控。
 
-所以将entry数组里每个handler执行，传入dispatch传入的payload，handler的执行结果覆盖数组的每项，然后map返回的是一个数组，传给Promise.all执行，执行返回值赋给result
+如果 entry 数组的长度 >1，说明 type 对应的 action 的处理函数有多个，可能每个处理函数就管控一个异步操作，我们不能简单地遍历依次执行 action，而是要把每个 action 的执行结果 (promise实例) 放到一个数组里，传给Promise.all，给它管控，Promise.all 的返回值才是最后的结果。
 
-如果entry数组只有1个元素，就将它这个handler函数传入payload执行，执行返回值赋给result
+因为如果简单的遍历执行 action，entry.map(handler => handler(payload)) 数组赋给 result，由于这是同步代码，所以 res 拿到的数组里的 promise 的状态还是 pending。Promise.all(iterable) 返回一个 promise 实例， iterable 内所有的 promise 都成功或 iterable 内不包含 promise 时这个 promise 才会成功；如果 iterable 中有一个失败了，则该 promise 实例失败，失败的原因是第一个失败 promise 的结果。
 
-我们知道registerAction函数中将action的处理函数包裹成wrappedActionHandler函数，推入entry数组，它返回的一定是promise实例，所以result一定是promise实例，它调用then，做一些处理后，返回res。
+也就是，Promise.all 会等待所有管控异步操作的 promise 都成功（或第一个失败），返回值是一个 promise 实例，赋给result，起初是 pending 状态，所有 promise 都有结果了，则 result 的状态也有结果了。
 
-## 辅助函数
+如果 entry 数组只有一个，则执行这个 handler 函数，传入 payload，返回值赋给 result。
+
+我们知道 registerAction 函数中将 action 的处理函数包裹成 wrappedActionHandler 函数，推入 entry 数组，它返回的一定是 promise 实例，所以无论是 Promise.all 的返回值还是 entry[0](payload)，它一定是 promise 实例，它可以调用 then，做一些处理后，返回 res。
+
+## 辅助函数的实现
 
 ### mapState
 
->当一个组件需要获取多个state时候，将这些state都声明为computed会有些重复和冗余。我们可以使用 mapState 辅助函数帮助我们生成计算属性
-我们看看mapState函数的实现：
+当你想在一个 Vue 组件中使用一个 state 数据 xxx 时，你可以通过 this.$store.state.xxx，这样每次都这么读取会比较麻烦，你可以将它声明为当前组件的一个计算属性。
+
+但当一个组件需要使用到多个 state 时，将这些 state 都声明为 computed 会有些繁琐。我们可以使用 mapState 这个辅助函数帮助我们生成计算属性
+
+我们看看 mapState 函数的实现：
 ```js
-  var mapState = normalizeNamespace(function (namespace, states) {
-    var res = {};
-    normalizeMap(states).forEach(function (ref) {
-      // ...
-    });
-    return res
+var mapState = normalizeNamespace(function (namespace, states) {
+  var res = {};
+  normalizeMap(states).forEach(function (ref) {
+    // ...
   });
+  return res
+});
 ```
-可以看到它是normalizeNamespace函数的返回值，normalizeNamespace做了什么事情：
+
+可以看到它是 normalizeNamespace 函数的返回值，normalizeNamespace 做了什么事情：
+
 ```js
 function normalizeNamespace (fn) {
   return function (namespace, map) {
@@ -1403,20 +1455,24 @@ function normalizeNamespace (fn) {
   }
 }
 ```
-可以看到normalizeNamespace接收一个函数fn，返回出一个新的函数，因此mapState就指向这个新函数，它接收两个参数：namespace和map。
-做了什么事情？首先判断传入的namespace，如果不是字符串，就把传入的第一个参数作为map，namespace赋值为''。满足是字符串，但最后一个字符不是 / ，要给namespace末尾加上 / 
-最后返回 fn(namespace, map)，也就是说mapState执行其实返回了fn的执行结果
-我们具体看看传入的fn是怎么样的：
+normalizeNamespace 接收一个函数 fn，返回出一个新的函数，因此 mapState 就指向这个新函数，它接收两个参数：namespace 和 map。
+
+做了什么事情？首先判断 namespace，如果不是字符串，就把传入的第一个参数作为 map，namespace 赋值为 ''。如果是字符串，但最后一个字符不是 "/" ，要给 namespace 末尾加上 "/"，也就是说，这个 type 字符串是考虑命名空间的字符串，Vuex 原则上期望你末尾带上 "/"，如果没有带，则会给你都补上。
+
+处理完返回 namespace 字符串后，执行并返回 fn(namespace, map)，即 mapState 执行实际返回 fn 的执行结果，
+我们具体看看传入的 fn 是怎么样的：
 ```js
-function (namespace, states) {
+var mapState = normalizeNamespace(function (namespace, states) {
   var res = {};
   normalizeMap(states).forEach(function (ref) {
     // ...
   });
   return res
-}
+});
 ```
-可以看到这个fn执行返回res对象，normalizeMap(states)遍历的过程中肯定往res对象添加属性了，中间具体做了什么，我们看看normalizeMap(states)，返回了什么内容，下面是normalizeMap的实现
+
+可以看到这个 fn 执行返回 res 对象，normalizeMap(states) 遍历的过程中肯定往 res 对象填充属性了，我们先看看 normalizeMap(states) 返回了什么内容，下面是 normalizeMap 的实现
+
 ```js
 function normalizeMap (map) {
   return Array.isArray(map)
@@ -1424,16 +1480,20 @@ function normalizeMap (map) {
     : Object.keys(map).map(key => ({ key, val: map[key] }))
 }
 ```
-normalizeMap接收states，也就是mapState接收的第二个参数（对象形式）
-normalizeMap中，首先判断map是否为数组，如果是，将数组每项key 转成 {key:key, val:key}这种结构
-如果不是，Object.keys获取map对象的所有自有属性组成的数组，然后将每一项key转成 {key, val:map[key]}
-normalizeMap其实就是做的一种map对象的形式上的整理
+normalizeMap(states) 接收 states，就是用户调用 mapState 传入的第二个参数（对象形式）。
+
+normalizeMap 函数中，首先判断这个 states 是否为数组，如果是，将数组每项 key 字符串转成 { key:key, val:key } 这样的对象
+
+如果不是，则默认用户传的是对象，调用 Object.keys 获取 states 对象的所有自有属性组成的数组，然后同样地，将每一项 key 字符串转成 { key: key, val: map[key] }
+
+normalizeMap 其实就是适应用户的不同形式的传参，做的是一种参数的归一化的整理
+
+接着这个归一化后的数组会进行 forEach 遍历，我们具体看看 forEach 的回调函数：
 
 ```js
 normalizeMap(states).forEach(function (ref) {
   var key = ref.key;
   var val = ref.val;
-
   res[key] = function mappedState () {
     var state = this.$store.state;
     var getters = this.$store.getters;
@@ -1453,8 +1513,12 @@ normalizeMap(states).forEach(function (ref) {
   res[key].vuex = true;
 });
 ```
-现在对normalizeMap(states)进行遍历，key拿到元素项的key，val拿到元素项的val，res是一个空对象，现在要在res对象中添加方法，属性值为key，方法为mappedState函数。
-mappedState函数中，state指向store对象的state对象，getters指向store对象的getters对象。接下来判断namespace是否存在，也就是有没有给mapState传字符串，命名空间字符串。如果有，调用getModuleByNamespace获取到它对应的模块对象，赋给module，我们粗略看看getModuleByNamespace的实现：
+
+回调函数中，参数 ref 拿到当前遍历的对象，key 拿到对象中的 key 值，val 拿到对象中的 val 值。res 初始是一个空对象，现在遍历的过程，要给它中添加方法，属性值为 key，方法为 mappedState 函数。
+
+mappedState 函数做了什么？
+
+首先 state 变量获取到 store 的 state，getters 变量获取到 store 的 getters。前面提过，如果用户没有给 mapState 传字符串，则 namespace 是空字符串，否则它不为空字符串，则调用 getModuleByNamespace 函数获取到它对应的 module 对象，赋给 module，我们粗略看看 getModuleByNamespace 的实现：
 
 ```js
 var module = getModuleByNamespace(this.$store, 'mapState', namespace);
@@ -1467,11 +1531,17 @@ function getModuleByNamespace (store, helper, namespace) {
     return module
   }
 ```
-你可以看到，getModuleByNamespace接收三个参数：store对象，'mapState'这个辅助函数的函数名，namespace命名空间字符串
-首先会去store._modulesNamespaceMap这个存放命名空间对应的模块的对象，去找出namespace对应的module，然后返回模块
-如果module不存在，报错提示：你要找的namespace这个命名空间在_modulesNamespaceMap中找不到对应的模块
+可以看到，传入 getModuleByNamespace 的 3 个参数分别是：
 
-我们在实例化Store的时候，已经把所有的模块都以 namespace 为key的形式添加到了store._modulesNamespaceMap对象中。
+1. store 对象
+2. 'mapState'：是一个区分于其他调用的标识
+3. namespace：命名空间字符串
+
+首先，会去 store._modulesNamespaceMap 这个存放 namespace 对应的模块的对象，去找出 namespace 对应的 module。
+
+如果 module 没找到，则报错提示：你要找的 namespace 在 _modulesNamespaceMap 对象中找不到对应的模块对象。如果找到了，就把它返回。
+
+前面已经谈过，在实例化 Store 时，已经把所有的模块和它对应的 namespace 都以键值对的形式添加到了 store._modulesNamespaceMap 缓存对象中。
 
 ```js
 if (namespace) {
@@ -1483,18 +1553,33 @@ if (namespace) {
   getters = module.context.getters;
 }
 ```
-判断module不存在就直接返回，state赋值为module.context.state，这个又是什么，其实这是带命名空间模块的state，getters拿到带命名空间模块的getters
+通过 getModuleByNamespace 获取到 module 后，判断 module 不存在就直接返回，因为用户 mapState 传的这个命名空间字符串呢，不一定对应有模块对象，可能是它拼错了这个字符串呢。
+
+然后，state 赋值为module.context.state，这个又是什么，其实我们前面也分析过：
+
+`var local = module.context = makeLocalContext(store, namespace, path);`
+
+它就是 local 对象，是为当前模块设置的本地的包含 dispatch、commit 方法，和 getter 和 state 属性的对象。
+
+于是 state 拿到本地的（带命名空间的）的 state，getters 拿到本地的（带命名空间的）的 getters
+
+mappedState 函数最后返回：
 
 ```js
-return typeof val === 'function'
-        ? val.call(this, state, getters)
-        : state[val]
+return typeof val === 'function' 
+      ? val.call(this, state, getters)
+      : state[val]
 ```
-val是什么，它是normalizeMap(states)中当前遍历的项的val值，如果它是函数（说明你传的map是一个对象，属性值是函数形式的），直接调用，执行时this指向当前Vue实例，传入state，getters。如果不是函数（说明你传的map是字符串组成的数组形式），返回state[val]，即state对象中对应的state。。。
 
-综上，mapState函数的第一个参数可以接收，模块的空间命名字符串，可以不传，然后是一个map对象，mapState执行返回一个对象res，里面存放了一个个键值对，key是你在map中命名的属性，属性值一个函数，函数执行返回state对象中对应state值
+val 是什么？它是 normalizeMap(states) 数组中当前遍历对象的 val 值，如果它是函数，则默认用户调用 mapState 传的第二个参数是一个对象，而且属性值是函数，那么直接调用 val 这个函数，执行时 this 指向当前 Vue 实例，因为 mapState 调用的环境中，this 指向 当前 Vue 实例。val 执行传入 state，getters。
 
-因为mapState执行返回一个对象，你可以这么使用mapState
+如果 val 不是函数，则默认用户调用 mapState 传的第二个参数是由字符串组成的数组，返回 state[val]，即通过本地的 key 字符串获取到 state 对象中对应的 state。
+
+综上，我们了解了 mapState 函数接收参数的形式：第一个参数可以接收模块的空间命名字符串，也可以不传，第二个参数是一个 map 对象，可以传数组或对象。
+
+mapState 会返回一个对象 res，里面存放的属性名是用户在 map 对象中起的字符串，属性值一个 mappedState 函数，函数执行返回 state 对象中对应 state 值
+
+因此，你可以这么使用mapState
 
 比如
 ```js
@@ -1508,19 +1593,21 @@ val是什么，它是normalizeMap(states)中当前遍历的项的val值，如果
     // 为了能够使用 `this` 获取局部状态，必须使用常规函数
   })
 ```
-我们知道mapState传入的这个的对象，就是map对象，它会经过normalizeMap的处理，转成数组，每个元素是一个对象{key,val}，然后遍历这个数组，往待返回的对象res里添加方法，方法名为key，如果val是一个函数就直接返回val的执行结果，如果不是，就返回state中val的值，比如上面的 state.count
-mapState执行返回出的对象，作为computed选项，那么count，countAlias，countPlusLocalState都成为了计算属性
+mapState 传入的这个对象，就是 map 对象，它会经过 normalizeMap 处理，转成数组，每个元素是一个对象{ key, val }，然后遍历这个数组，往待返回的对象 res 里添加方法，方法名为 key，如果 val 是函数，就直接返回 val 的执行结果，如果不是，就返回 state 中 val 的值，比如上面的 countAlias: 'count'
 
-给mapState传入的map对象还可以是数组，比如这么写：
+mapState 返回的对象，作为 computed 选项，那么 count，countAlias，countPlusLocalState 都被初始化为计算属性
+
+用户给 mapState 传入的 map 还可以是数组，比如这么写：
+
 ```js
 computed: mapState([
   'count',// 映射 this.count 为 store.state.count
   'xxxxx'
 ])
 ```
-mapState会将数组的每项转成 {'count':'count'} 这样的形式，遍历数组，往res对象里添加方法，方法名为'count'，方法本身执行返回 store.state.count
+mapState 会将数组的每项转成 {'count': 'count'} 这样的形式，遍历数组，往 res 对象里添加方法，方法名为 'count'，方法本身执行返回 store.state.count
 
-因为mapState返回的是一个对象，并且每个键值对拿出来就是一个computed，我们可以用对象展开运算符 将它混入到计算属性中，这样就不影响你写别的computed
+mapState 返回的是对象，我们可以用对象展开运算符，将里面的键值对直接混入到 computed 的配置对象中，这样就不影响用户写别的自定义计算属性：
 ```js
 computed: {
   localComputed () { /* ... */ },
@@ -1538,8 +1625,10 @@ computed: {
   })
 },
 ```
-使用mapState绑定带命名空间的模块时，这么写比较繁琐
-你可以将模块的空间名称字符串作为第一个参数传入mapState，这样所有的绑定会自动将该模块作为上下文
+"a" 和 "b" 是用户起的计算属性名，属性值是返回对应 state 数据的函数，这样就能绑定带命名空间的模块，但这么写明显比较繁琐。
+
+用户 mapState 时第一个参数可以传模块的空间命名字符串，这样所有的绑定会自动将该模块作为上下文。
+
 ```js
 computed: {
   ...mapState('some/nested/module', {
@@ -1548,9 +1637,9 @@ computed: {
   })
 },
 ```
-由前面的源码我们知道，mapState会根据namespace获取对应的模块，然后函数中的state就不再取根state，取module.context.state，也就是这个模块对应的state（当地化的意思），剩余的逻辑和前面一样，将第二个参数map对象，mapState返回出对象，key为你写的a，对应的函数，函数执行返回state => state.a的执行结果，只是现在的state并不是根state对象，而是当地化的state
+由前面的源码我们知道，mapState 会根据 namespace 获取对应的模块 module，然后函数中的 state 就不再指向根 state，被覆盖为 module.context.state，即对应模块的 state，剩下的逻辑和前面一样，第二个参数 map 对象中的函数的 state 就不是根 state了，而是当地化的 state。
 
-他妈的，终于搞懂了mapState内部实现
+是不是终于搞懂了 mapState 的内部实现？
 
 ### mapGetters
 和mapState的实现很像
