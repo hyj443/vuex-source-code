@@ -12,20 +12,22 @@ state的变化是响应式的，因为Vuex依赖Vue的数据双向绑定，需�
 
 ## Vuex的安装
 
-Vuex 是 Vue 插件，在使用 Vuex 前，必须在 new Vue() 之前调用 Vue.use() 来安装 Vuex：
+Vuex 文档告诉我们：
+
+> 在一个模块化的打包系统中，必须在 new Vue() 之前调用 Vue.use() 才能使用 Vuex 插件：
 
 ```js
 import Vue from 'vue';
 import Vuex from 'vuex';
 Vue.use(vuex);
-
 new Vue({
-  // ...组件选项
+  // ...
 })
 ```
->如果 Vue 插件是一个对象，它必须提供 install 方法。如果插件是一个函数，则它被作为 install 方法。install 接收的第一个参数就是 Vue 对象
+关于安装插件，Vue 文档是这么说的：
+> 安装 Vue.js 插件。如果插件是一个对象，它必须提供 install 方法。如果插件是一个函数，则它会被作为 install 方法。install 方法调用时，会将 Vue 作为参数传入。
 
-src\index.js 入口文件中，Vuex 默认导出的对象如下：
+src\index.js 入口文件中，Vuex 默认导出的对象是这样的：
 
 ```js
 export default {
@@ -39,7 +41,7 @@ export default {
   createNamespacedHelpers
 }
 ```
-可见对象中有 install 方法。Vue.use 执行时，会调用该 install 方法。我们看看 install：
+可见暴露了有 install 方法。查看 Vue 源码可知，Vue.use 执行时，会调用插件的 install 方法。Vuex 插件的 install 是这样的：
 
 ```js
 let Vue
@@ -55,10 +57,11 @@ export function install (_Vue) {
   applyMixin(Vue)
 }
 ```
+已知，install 接收的第一个参数是 Vue 构造函数。
 
-如果是初次调用 install，定义的 Vue 还为 undefined，if 语句块不执行，install 接收的 _Vue 是 Vue 构造函数，它赋给了 Vue。如果再次调用 install，Vue 已经有值，且和传入的 _Vue 相同的话，则开发环境下会打印警告：Vuex已经安装了，Vue.use(Vuex)只能调用一次。然后直接返回，避免 Vuex 插件的重复安装。
+如果是初次调用 install，定义的 Vue 还为 undefined，if 语句块不执行，然后接收的 Vue 构造函数赋给了 Vue。所以如果再次调用 install，Vue 已经有值，且和传入的 _Vue 相同的话，则开发环境下会打印警告：Vuex 已经安装过了，Vue.use(Vuex) 只能调用一次。然后直接返回，避免插件的重复安装。
 
-接着调用 applyMixin(Vue)，我们看看 applyMixin 这个函数：
+接着调用 applyMixin(Vue) 进行真正的安装工作：
 
 ```js
 export default function (Vue) {
@@ -74,11 +77,11 @@ export default function (Vue) {
 }
 ``` 
 
-真正实现插件的安装是在 applyMixin 中，如果 Vue 的版本是 2.x，调用 Vue.mixin，混入一个 beforeCreate 钩子：vuexInit。Vue.mixin 的作用是：全局注册一个混入，会影响之后创建的每个 Vue 实例。
+如果 Vue 的版本是 2.x，调用 Vue.mixin，混入一个 beforeCreate 钩子：vuexInit。
 
-这意味着，install 之后，之后创建的每个 Vue 实例的执行 beforeCreate 钩子函数时，都会执行 vuexInit。
+这意味着，Vue.mixin 后，之后创建的每个 Vue 实例的执行 beforeCreate 钩子时，都会执行 vuexInit。
 
-vuexInit 顾名思义是初始化 vuex：
+对于每个 Vue 实例来说，vuexInit 执行时的 this 就指向当前的 Vue 实例：
 
 ```js
 function vuexInit () {
@@ -93,9 +96,7 @@ function vuexInit () {
 }
 ```
 
-vuexInit 钩子执行时，this 指向当前 Vue 实例，this.$options 获取的是当前 Vue 实例的 $options 对象。
-
-如果 this.$options.store 存在，说明实例化 Vue 时传了 store 这个配置项。我们只有在创建 Vue 的根实例时，才会传入 store 对象：
+vuexInit 函数中，首先获取当前 Vue 实例的 $options 对象。然后，判断如果 $options 的 store 存在，说明创建 Vue 的根实例时传了 store 对象，我们只有在创建 Vue 的根实例时，才会传入 store 对象：
 
 ```js
 new Vue({
@@ -105,15 +106,15 @@ new Vue({
 }).$mount('#app')
 ```
 
-所以 this.$options.store 的存在说明当前实例是根实例，要给根实例添加 $store 属性，属性值为 options.store() 或 options.store，取决于 options.store 是否为函数。
+然后给当前这个根实例添加 $store 属性，属性值为 options.store() 或 options.store，取决于传入的 store 是否为函数。
 
-如果当前不是根 Vue 实例，再判断如果它有父实例，并且父实例的 $store 有值，则也给当前实例添加 $store 属性，属性值为父组件的 $store 值。
+如果当前不是根 Vue 实例，但如果它有父实例且父实例的 $store 有值，那么也给当前实例添加 $store 属性，属性值为父实例的 $store 值。
 
-可见 applyMixin 让每一个 Vue 组件实例的创建时，执行到 beforeCreate 钩子时，都会调用 vuexInit，给 Vue 组件实例添加 $store 属性，并且所有实例的 $store 属性都指向同一个 store 对象，即在任意组件中都可以通过 this.$store 访问根实例中注册的 store 对象
+对于每个 Vue 实例的生命周期都会执行到这个 vuexInit 函数，不管是根实例还是它下面的子实例，都添加了 $store 属性，并且所有 $store 属性值都指向同一个 store 对象，即 new Vue 时注册的 store 对象。因此在任意组件中都可以通过 this.$store 访问到它。
 
 ## store 对象的创建
 
-根实例注册的 store 对象会向下注入到子组件实例中。问题来了，这个 store 对象是怎么创建的？它是通过实例化 Vuex.Store 创建的：
+根实例注册的 store 对象会通过 applyMixin 向下注入到子组件实例中。那这个 store 对象是什么样的？它是通过实例化 Vuex.Store 创建的：
 
 ```js
 const store = new Vuex.Store({
@@ -146,9 +147,9 @@ class Store {
 }
 ```
 
-首先判断，如果本地 Vue 没有值（说明没有调用过 install），且当前是浏览器环境，且 window.Vue 存在，则传入 window.Vue 执行 install。这意味着 Vuex 在用户没有调用 Vue.use(Vuex) 时，能主动进行安装。
+首先判断，如果本地 Vue 没有值，且当前是浏览器环境，且 window.Vue 存在，则传入 window.Vue 执行 install。这意味着，当使用全局 `<script>` 标签引用 Vuex 包时，不需要用户手动调用 Vue.use(Vuex)，Vuex 能主动调用 install 进行安装。
 
-Vuex 的使用需要一些必要条件。在开发环境中，会执行3个 assert 函数，如果条件不具备则会抛错。
+Vuex 的使用需要一些必要前提条件。在开发环境中，会执行 3 个断言函数 assert，如果条件不具备则会抛错。
 
 ```js
 export function assert (condition, msg) {
@@ -157,9 +158,9 @@ export function assert (condition, msg) {
 ```
 3个assert函数所做的事是：
 
-1. 如果本地 Vue 没有值，抛出错误：实例化 Store 之前必须调用 Vue.use(Vuex)。因为这样 Vue 构造函数才能传进来，供后续使用
+1. 如果本地 Vue 没有值，抛出错误：实例化 Store 之前必须调用 Vue.use(Vuex)。因为 Vuex 要用到传进来的 Vue 构造函数。
 2. 如果 Promise 不能用，抛出错误：Vuex 依赖 Promise。
-3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误：Store 必须用 new 关键字调用
+3. 如果 Store 函数里的 this 不是 Store 的实例，抛出错误：Store 必须用 new 关键字调用。
 
 判断完环境后，开始初始化 Store 实例的属性，它们会保存一些内部状态：
 
@@ -200,9 +201,9 @@ this.commit = function boundCommit (type, payload, options) {
 
 首先定义 store 变量指向当前 store 实例。再定义 dispatch 和 commit，通过解构 this 分别缓存了 Store 原型上的 dispatch 和 commit 方法。
 
-接着，给 store 实例添加 dispatch 和 commit 方法，方法调用实际执行刚刚缓存的 dispatch 和 commit 方法，但执行时的 this 指向当前 store 实例。
+接着，给 store 实例添加 dispatch 和 commit 方法，这俩方法调用实际执行刚刚缓存的 dispatch 和 commit 方法，但执行时的 this 指向当前 store 实例。
 
-具体 Store 原型上的 dispatch 和 commit 方法做了什么事情，后面会讲。
+所以用户可以通过 store.commit 这样去调用。具体 Store 原型上的 dispatch 和 commit 方法后面会讲。
 
 接着看 Store 构造函数：
 
@@ -215,7 +216,7 @@ plugins.forEach(plugin => plugin(this))
 ```
 从 options 中解构出来的 strict 属性值，赋给 store 实例的 strict 属性。
 
-前面提到，this._modules 是 ModuleCollection 的实例，我们稍后会讲到，它的 root 属性的值是根 module 对象，根 module 对象的 state 属性指向它的 state 对象。所以这里获取根 state 赋给 state 变量。
+前面提到，this._modules 是 ModuleCollection 的实例，我们稍后会讲到，它的 root 属性的值是根 module 对象，根 module 对象的 state 属性指向它的 state 对象，即根 state 赋给了 state 变量。
 
 调用 installModule 进行模块的注册，传入 store 实例、根 state、[]、根 module 对象。
 
@@ -226,22 +227,123 @@ plugins.forEach(plugin => plugin(this))
 上面这些后面会展开讲。到目前为止，Store 构造函数已经过了一遍。new Store 主要做了三件事：
 
 1. 初始化一些内部属性，其中重点是 this._modules = new ModuleCollection(options)
-2. 执行 installModule ，安装模块
-3. 执行 resetStoreVM ，使store响应式化
+2. 执行 installModule，安装模块
+3. 执行 resetStoreVM，使store响应式化
 
 我们将逐个细说这三个，先说初始化 _module 属性，即 new ModuleCollection(options)
 
-### Module 收集
+## Store 对象该怎么传
 
 ```js
 this._modules = new ModuleCollection(options)
 ```
+这是进行模块的收集，会调用 register 函数。
+```js
+class ModuleCollection {
+  constructor (rawRootModule) {
+    this.register([], rawRootModule, false)
+  }
+}
+```
+在 register 函数中，如果在生成环境下，会调用 assertRawModule 函数，传入当前 module 的路径和配置对象。
+```js
+register (path, rawModule, runtime = true) {
+  if (process.env.NODE_ENV !== 'production') {
+    assertRawModule(path, rawModule)
+  }
+  // ...
+}
+```
+我们看看 assertRawModule 函数的实现：
+
+```js
+function assertRawModule (path, rawModule) {
+  Object.keys(assertTypes).forEach(key => {
+    if (!rawModule[key]) return
+    const assertOptions = assertTypes[key]
+    forEachValue(rawModule[key], (value, type) => {
+      assert(
+        assertOptions.assert(value),
+        makeAssertionMessage(path, key, type, value, assertOptions.expected)
+      )
+    })
+  })
+}
+```
+首先会获取 assertTypes 的自有属性组成的数组，遍历数组里的属性，执行回调
+
+```js
+const functionAssert = {
+  assert: value => typeof value === 'function',
+  expected: 'function'
+}
+const objectAssert = {
+  assert: value => typeof value === 'function' ||
+    (typeof value === 'object' && typeof value.handler === 'function'),
+  expected: 'function or object with "handler" function'
+}
+const assertTypes = {
+  getters: functionAssert,
+  mutations: functionAssert,
+  actions: objectAssert
+}
+```
+可见 Object.keys(assertTypes) 就是 ['getters','mutations','actions']
+
+在回调中，首先：
+```js
+if (!rawModule[key]) return
+const assertOptions = assertTypes[key]
+```
+如果当前配置对象中没有配置 key 这个属性，比如没有传 actions，那么直接返回。
+ 
+如果传了，那就获取 assertTypes[key] 赋给 assertOptions，比如 'getters' 对应的就是 functionAssert 对象
+
+接着：
+```js
+forEachValue(rawModule[key], (value, type) => {
+  assert(
+    assertOptions.assert(value),
+    makeAssertionMessage(path, key, type, value, assertOptions.expected)
+  )
+})
+```
+我们先看看 forEachValue 函数：
+
+```js
+export function forEachValue (obj, fn) {
+  Object.keys(obj).forEach(key => fn(obj[key], key))
+}
+```
+
+forEachValue 函数会遍历传入的 obj 对象的自有属性 key，逐个调用 fn。
+
+所以 forEachValue 会遍历配置对象中 key 对应的属性值对象，执行回调，回调的参数 value 接收对象的属性值，type 接收属性名。执行 assert 函数，如果 assertOptions.assert(value) 的执行结果是 false，则会抛出错误，错误的具体提示内容由 makeAssertionMessage 函数生成。
+
+key 为 'getters' 或 'mutations' 的话，那么 assertOptions.assert 函数就是：
+
+`value => typeof value === 'function'`
+
+所以如果用户传的 getters 的对象中的属性值不是函数的话，就会抛错
+
+key 为 actions 的话，那么 assertOptions.assert 函数就是 
+
+```js
+value => typeof value === 'function' ||
+    (typeof value === 'object' && typeof value.handler === 'function')
+```
+
+所以用户传的 actions 的对象中的属性值可以是函数，或者是包含handler函数的对象，否则就会抛错。
+
+到此明白了 assertRawModule 函数的作用是对用户传入的配置项 getters、mutations、actions 做一些判断，如果没有按期望的要求传就会抛错，并提示开发者。
+
+## Module 收集
 
 Vuex文档里是这么说：
 
 > store 使用单一的状态树，用一个对象包含了全部的应用层级的状态，每个应用将仅仅包含一个 store 实例。
 
-如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将 store 分割成模块(module)，每个模块都有自己的 state 、mutation、action、getter、甚至是嵌套子模块，像下面这样从上至下进行同样方式的分割：
+如果应用变得很复杂，store 对象就可能很臃肿。为了解决这个问题，Vuex 允许我们将 store 分割成模块，每个模块都有自己的 state 、mutation、action、getter、甚至是嵌套子模块，像下面这样从上至下进行同样方式的分割：
 
 ```js
 const moduleA = {
@@ -306,7 +408,7 @@ register (path, rawModule, runtime = true) {
 ```
 先解释 register 方法接收的这 3 个参数：
 
-1. path：module 对象的属性名组成的数组，是 module 对象的唯一标识。
+1. path：路径，module 对象的属性名组成的数组，是 module 对象的唯一标识。
   像刚刚的例子，根 module 的 path 为 []，它的子模块 moduleA 的 path 是 ['a']，子模块 moduleB 的 path 是 ['b']，如果它们各自还有子模块，则它们的 path 就大致形如 ['a','a1']、['b','b1']
 2. rawModule：定义当前 module 的 options 对象，后面统称为配置对象。rawRootModule 就是实例化 Store 时传入的配置对象，因为我们把创建的 store 对象看作是根 module，所以我们把它的配置对象看作根 module 的配置对象。
 3. runtime 表示是否是一个运行时创建的 module，默认为 true。
@@ -319,12 +421,10 @@ new ModuleCollection(options)时，首次调用 register，第一个参数传入
 我们具体分段看 register 的内部：
 
 ```js
-assertRawModule(path, rawModule)
 const newModule = new Module(rawModule, runtime)
 ```
-首先调用 assertRawModule 对 module 的配置对象作一些判断，遍历用户传的配置对象中的 getters、mutations、actions，判断是否符合要求，这里不作具体分析。
 
-然后根据当前的配置对象 rawModule，创建一个 Module 实例，赋给变量 newModule。后面会详谈 Module 构造函数。
+首先调用 assertRawModule 对 module 的配置对象作一些判断后，根据当前的配置对象 rawModule，创建一个 Module 实例，赋给变量 newModule。后面会详谈 Module 构造函数。
 
 继续看 register：
 
@@ -337,7 +437,7 @@ if (path.length === 0) {
 }
 ```
 
-如果 path 是空数组，说明当前注册的 module 是根 module，则把刚刚创建的 Module 实例赋给 this.root，this 指向当前 ModuleCollection 的实例，即它的 root 属性保存了根 module 对象。
+如果 path 是空数组，说明当前 register 的是根 module，那么把刚刚创建的 Module 实例赋给 this.root，this 指向当前 ModuleCollection 的实例，即它的 root 属性保存了根 module 对象。
 
 如果 path 不是空数组，即当前 register 的是子 module，稍后会讲解。
 
@@ -350,23 +450,13 @@ if (rawModule.modules) {
   })
 }
 ```
-如果当前配置对象 rawModule 的 modules 属性有值，说明用户给它配置了子 module，则需要调用 forEachValue 遍历 modules 对象，进行子模块的递归注册，我们先看看 forEachValue 函数：
+如果当前配置对象 rawModule 的 modules 属性有值，说明用户给它配置了子 module，则需要调用 forEachValue 遍历 modules 对象，进行子模块的递归注册。
 
-```js
-export function forEachValue (obj, fn) {
-  Object.keys(obj).forEach(key => fn(obj[key], key))
-}
-```
-
-forEachValue 函数会遍历传入的 obj 对象的自有属性 key，逐个调用 fn。
-
-所以这里做的是：遍历 rawModule.modules 对象里的每个 key，它们是子模块配置对象的键名，执行回调，传入 key 对应的配置对象 rawChildModule 和 key。在回调中会调用 register 函数，对子模块进行注册。
-
-此时传入 register 的 path 是 `path.concat(key)`。我们知道，path 是当前注册的模块的路径，concat 上当前遍历的 key，就是当前子模块的路径。
+遍历 rawModule.modules 对象里的每个 key，它们是子模块的名称，执行回调，传入对应的配置对象 rawChildModule 和 key。在回调中调用 register 函数，此时传入的 path 是 path.concat(key)，path 是当前注册的模块的路径，concat 上当前遍历的 key，就是当前子模块的路径。
 
 比如模块 a 嵌套了模块 b，模块 b 嵌套了模块 c，那模块 c 的path是：['a','b'].concat('c')，即['a','b','c']
 
-第二个参数rawChildModule，是当前遍历的属性值，即子模块的配置对象。
+第二个参数 rawChildModule，是当前遍历的属性值，即子模块的配置对象。
 
 我们现在捋一捋：实例化 Store 必然会实例化 MoudleCollection，进行 module 的收集，至少会调用一次 register 进行根 module 的注册，如果根配置对象配置了嵌套的子模块，则会继续调用 register 注册子 module。子模块的 path 不是空数组，回到刚刚那个 else 语句块:
 
@@ -421,37 +511,19 @@ reduce 累加器的初始值为 this.root，是根 module，第一次迭代中�
 
 所以 get 方法是根据 path 数组，通过 reduce 迭代，返回出 path 对应的 module 对象。
 
-所以，获取到当前模块的父模块对象，赋给 parent，然后调用 addChild 方法，给父模块对象的 _children 属性，添加当前子模块对象。
-
 ```js
  const parent = this.get(path.slice(0, -1))
  parent.addChild(path[path.length - 1], newModule)
 ```
-
 path[path.length - 1]，path 数组的最后一项，即当前模块的 key 名，newModule 是当前模块对象，它们将作为键值对添加到父模块对象的 _children对象中
+
+所以，获取到当前模块的父模块对象，然后调用 addChild 方法，给父模块对象的 _children 属性，添加当前子模块对象。
 
 通过 module 的 _children 属性，建立了父子模块对象之间的父子关系。现在未加工的配置对象形成的树形结构，已经转成了一个个散落的父子 module 对象。
 
-我们再整体梳理一下 register方法：
+我们再整体梳理一下 register 方法：
 
-```js
-register (path, rawModule, runtime = true) {
-  const newModule = new Module(rawModule, runtime)
-  if (path.length === 0) {
-    this.root = newModule
-  } else {
-    const parent = this.get(path.slice(0, -1))
-    parent.addChild(path[path.length - 1], newModule)
-  }
-  if (rawModule.modules) {
-    forEachValue(rawModule.modules, (rawChildModule, key) => {
-      this.register(path.concat(key), rawChildModule, runtime)
-    })
-  }
-}
-```
-
-首先 register 方法必然至少调用一次，在实例化 Store 时，会调用 new ModuleCollection，会执行 register，根据根配置对象注册为根 module 对象，只要配置了嵌套模块，就会递归调用 register，注册每一个子模块，每一个子模块都通过 path 找到自己的父模块对象，通过 addChild 添加 _children 属性建立父子关系，然后再看自己有没有嵌套子模块，如果有就继续递归调用 register，最后完成整个 module 树的注册。
+在实例化 Store 时，会调用 new ModuleCollection，会执行 register，根据根配置对象注册为根 module 对象，只要配置了嵌套模块，就会递归调用 register，注册每一个子模块，每一个子模块都通过 path 找到自己的父模块对象，通过 addChild 添加 _children 属性建立父子关系，然后再看自己有没有嵌套子模块，如果有就继续递归调用 register，最后完成整个 module 树的注册。
 
 概况来说，new ModuleCollection(即 register 的执行)，做了两件事：
 
@@ -483,17 +555,23 @@ class Module {
 ```
 Module 的实例会挂载一些属性，比如 _children，它初始值是一个空对象，用来存放当前 module 对象的子 module 对象。_rawModule 属性保存当前模块的配置对象。
 
-然后获取配置对象中 state 的属性值，如果它为函数，则执行的返回值赋给实例的 state 属性，如果不是函数，直接赋给 state 属性，如果它是 undefined，即当前模块的配置对象没有配置 state，则 state 属性值为一个空对象
+然后获取配置对象中 state 的属性值，如果它为函数，则执行的返回值赋给实例的 state 属性，如果不是函数，直接赋给 state 属性，如果它不存在，即当前模块的配置对象没有配置 state，则也赋为一个空对象
 
-可见，用户声明模块的 state 我们可以传一个返回一个对象的函数，返回的对象会被赋给 this.state。
+可见，用户声明模块的 state 可以传一个返回一个对象的函数，返回的对象会被赋给 this.state。
 
 这和 Vue 组件里的 data 一样，如果使用一个纯对象来声明模块的state，那么这个 state 对象会通过引用被共享，导致 state 对象被修改时，store 或模块间数据相互污染。
 
-因为有时我们可能需要创建一个模块的多个实例，比如，创建多个 store 实例，或在一个 store 中多次注册同一个模块
+因为有时我们可能需要创建一个模块的多个实例，比如，多次实例化 Store 创建多个 store 实例，或在一个 store 中多次注册同一个模块。
 
-namespaced 是 Module 的原型属性，使用 get 给它的属性描述符对象添加了 get 方法，当 Module 实例读取 namespaced 时，会沿着原型链找到并读取原型上的 namespaced，触发了它的 get 方法，返回模块的配置对象的 namespaced 属性值的真假
+```js
+get namespaced () {
+  return !!this._rawModule.namespaced
+}
+```
 
-### installModule 初始化根模块对象
+Module 还有一个原型属性 namespaced，使用 get 给它的属性描述符对象添加了 get 方法，通过 Module 实例读取 namespaced 属性时，会读取 Module 原型上的 namespaced，触发了 get 方法，返回模块的配置对象的 namespaced 属性值的真假
+
+### installModule
 
 我们在讲 Store 构造函数时，它重点的做的三件事，现在我们讲完了模块对象的创建和建立父子关系，接着就是模块的安装(初始化根模块对象)，也就是 constructor 中的这句：
 
@@ -530,9 +608,9 @@ function installModule(store, rootState, path, module, hot) {
 ```
 由Vuex文档可知：
 
-Vuex 2后的版本添加了命名空间的功能，使用了module后，state就被模块化，比如要调用根模块的state，则`store.state.xxx`，如果要调用a模块的state，则调用`store.state.a.xxx`。
+Vuex 2后的版本添加了命名空间的功能，使用了 module 后，state 就被模块化，比如读取根模块的 state：`store.state.xxx`，如果要读取 a 模块的 state：`store.state.a.xxx`。
 
-但默认情况下，模块内部的 action、mutation 和 getter 是会注册在全局命名空间的。比如，不同模块有同名的 mutation，会导致这些模块能够对同一个 mutation 作出响应。
+但默认情况下，模块内部的 action、mutation 和 getter 是会注册在全局命名空间的。如果不同模块有同名的 mutation，会导致这些模块能够对同一个 mutation 作出响应。
 
 如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式，使其成为带“命名空间”的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
 
@@ -594,7 +672,7 @@ if (module.namespaced) {
 
 首先，使用变量 isRoot 来标识当前模块是否为根模块，可见根模块和子模块的 install 不太一样。
 
-接着，调用 getNamespace 函数，根据当前模块的 path 获取当前模块的命名空间。我们看看 ModuleCollection 的原型方法getNamespace：
+接着，调用 getNamespace 函数，根据当前模块的 path 获取当前模块的命名空间。我们看看 ModuleCollection 的原型方法 getNamespace：
 
 ```js
 getNamespace (path) {
@@ -1642,9 +1720,9 @@ computed: {
 是不是终于搞懂了 mapState 的内部实现？
 
 ### mapGetters
-和mapState的实现很像
+和 mapState 的实现很像。
 ```js
-  var mapGetters = normalizeNamespace((namespace, getters) => {
+var mapGetters = normalizeNamespace((namespace, getters) => {
   const res = {}
   normalizeMap(getters).forEach(({ key, val }) => {
     val = namespace + val
@@ -1663,16 +1741,23 @@ computed: {
   return res
 })
 ```
-我们这直接讲了，不分段了。mapGetters接收namespace（可选）和getters（一个map对象），mapGetters执行也就是normalizeNamespace传入的函数执行，准备一个待返回的对象res，将传入的map对象经过normalizeMap处理成数组，map对象有两种形式：
+我们这直接讲了，不分段了。mapGetters 接收 namespace（可选）和 getters（一个map对象），mapGetters 指向 normalizeNamespace 执行返回的函数，mapGetters 执行实际执行传入 normalizeNamespace 的回调函数。
 
-1. ['getter1', 'getter2']   数组项就是store里getter的真实名字
-2. { myGetter1: 'getter1'}  你想将getter属性取另一个名字，就这样使用对象形式
+用户传的 map 对象有两种形式：
 
-key取数组项里的key，val取它的val，如果存在命名空间的话，val = namespace + val;
-往res对象中添加键值对，属性值为key，属性值为函数，函数返回store里的getters中val对应的getter，最后mapGetters执行返回出这个res对象
+1. ['getter1', 'getter2']   数组项就是 store 里 getter 的实际名称
+2. { myGetter1: 'getter1'}  你想将 getter 起另外的名称，就这样使用对象去定义
 
-所以...mapGetter()出来的一个个计算属性，他们的函数返回值是store.getters对应的属性值
+在这个回调函数中，首先定义一个待返回的对象 res，将传入的 map 对象经过 normalizeMap 处理成数组，对应上面的例子分别是：
 
+1. [{'getter1':'getter1'}, {'getter2':'getter2'}]
+1. [{'myGetter1':'getter1'}]
+
+调用 forEach 函数进行遍历，key 取到数组当前遍历对象里的 key，val 取它的 val，如果存在命名空间的话，val 字符串前面还要拼上命名空间字符串
+
+往 res 对象中添加键值对，属性值为 key，属性值为 mappedGetter 函数，函数执行返回 store 里的 getters 中 val 对应的 getter，最后 mapGetters 执行返回出这个 res 对象
+
+所以 ...mapGetter(...) 可以直接放在 computed 选项的配置对象中，被注册为计算属性，处理函数返回值是 store.getters 对应的属性值
 
 ### mapActions
 ```js
@@ -1695,12 +1780,18 @@ key取数组项里的key，val取它的val，如果存在命名空间的话，va
     return res
   })
 ```
-和前面俩一样，mapActions执行也就是normalizeNamespace的参数回调执行，回调函数中，准备一个空对象res，
-normalizeMap会将mapActions接收的action对象格式化成一个数组，遍历数组，往res对象中添加键值对，key: 一个函数
-这个函数所接收的参数组成了数组args，这个函数中，先缓存了this.$store.dispatch的方法，如果namespace存在，说明mapActions时传入的第一个参数是带命名空间的字符串，根据namespace获取对应的模块，获取不到就直接返回，然后把dispatch变量更新为所找到的模块对应的dispatch方法（local的，当地化后的）
-最后判断val是否是一个函数，是则直接调用，this指向当前Vue实例，如果是一个函数，（这里没太搞懂，但可以肯定的是我们经常不这么写）如果不是一个函数，则调用dispatch方法，this指向store对象，传入action的名字字符串，即val，和作为method接收的参数args。
 
-比如，你会这么写：
+和前面俩一样，mapActions 执行实际执行传入 normalizeNamespace 的回调。
+
+在回调函数中，准备一个空对象 res。
+
+normalizeMap 会将 mapActions 接收的 action 对象格式化成一个数组，每一项都是一个类似这样的对象：{ key: key, val: val }，遍历数组，往 res 对象中添加键值对：action 名和它对应的 mappedAction 函数。res 对象经过展开后可以注册在 methods 选项对象中，所以这个 mappedAction 函数就是一个 method。
+
+args 是 mappedAction 函数所接收的参数数组，这个函数中，首先用 dispatch 变量缓存 this.$store.dispatch 的方法，如果 namespace 存在，说明 mapActions 时传入的第一个参数是带命名空间的字符串，根据 namespace 获取对应的模块，获取不到就直接返回，然后把 dispatch 变量覆盖为所找到的模块对应的 dispatch 方法，这是 local 的本地化的 dispatch。
+
+最后判断 val 是否是函数，即用户传入的 map 对象的 val 是否是函数，是则直接调用，this 指向当前 Vue 实例。
+
+如果不是一个函数，则调用 dispatch 方法，this 指向 store 对象，传入 action 的实际名称，即 val，和作为 method 接收的参数 args。比如，用户会这么写：
 ```js
 methods:{
   ...mapActions(['action1', 'action2']),
@@ -1710,24 +1801,36 @@ methods:{
   }),
 }
 ```
-第一个mapActions执行返回的对象中，{ 'action1': 函数1, 'action2': 函数2 }
-这个对象被展开后混入methods中成为method，那么函数1作为method，它接收的参数，参数数组args
-函数1里面做的事情就是 this.$store.dispatch('action1', ...args)
-就像下面这样
-```js
-action1(...args){
-  this.$store.dispatch('action1', ...args)
-}
-```
-第二个mapActions执行返回的对象，会像这样：{ 'myAction3' : 函数3 }
-这个对象被展开后混入methods，成为method，它接收的参数放到一个数组里args
-```js
-myAction3(...args){
-  this.$store.dispatch('action3', ...args)
-}
-```
-所以函数3里做的事情就是 this.$store.dispatch('action3', ...args)
+第一个mapActions执行返回的对象大致是：{ 'action1': 函数1, 'action2': 函数2 }
 
+这个对象被展开后，混入 methods 配置对象中，那么函数 1 作为 method，它接收的参数组成了数组 args
+
+函数 1 主要是调用 dispatch.apply(this.$store, [val].concat(args))，即 this.$store.dispatch('action1', ...args)
+
+就像下面这样：
+
+```js
+methods：{
+  action1(...args){
+    // ...
+    return this.$store.dispatch('action1', ...args)
+  }
+}
+```
+第二个 mapActions 执行返回的对象，会像这样：{ 'myAction3' : 函数3 }
+
+这个对象被展开后混入 methods 配置对象中，它接收的参数组成了数组 args。
+
+```js
+methods：{
+  myAction3(...args){
+    // ...
+    return this.$store.dispatch('action3', ...args)
+  }
+}
+```
+
+所以函数 3 主要就是调用并返回 this.$store.dispatch('action3', ...args)
 
 ### mapMutations
 
@@ -1750,25 +1853,29 @@ var mapMutations = normalizeNamespace((namespace, mutations) => {
     return res
   })
 ```
-同样的，mapMutations执行相当于(namespace, mutations) => {....这个回调执行，返回出一个对象res
-比如你这么使用：
+同样的，mapMutations 执行相当于执行 (namespace, mutations) => {....} 这个回调，返回出对象 res。
+
+用户可以这么使用：
+
 ```js
 methods: {
-    ...mapMutations(['muta1',  'muta2' ]),
-
-    ...mapMutations({ myMuta3: 'muta3' })
-  }
+  ...mapMutations(['muta1',  'muta2' ]),
+  ...mapMutations({ myMuta3: 'muta3' })
+}
 ```
-比如第一个，返回的res对象就像这样: { 'muta1': 函数1 ,  'muta2': 函数2  }
-muta1就成了method名，method值为函数1，那函数1接收的参数数组为args
-函数1其实就是源码中的mappedMutation函数，它做了什么：获取this.$store.commit，如果传来模块命名空间字符串，就获取模块本地化的commit，然后 执行 commit.apply(this.$store, [val].concat(args))
-也就是 `this.$store.commit('muta1', ...args)`
+比如第一个，返回的 res 对象就像这样: { 'muta1': 函数1 ,  'muta2': 函数2  }
 
-第二个也类似，变成这样的method
+将这个对象展开放入 methods 配置对象中，'muta1' 就成了 method 名，method 值为函数1，函数 1 接收的参数数组为 args
+
+函数1 就是源码中的 mappedMutation 函数，它首先获取 this.$store.commit，如果用户在 mapMutation 时第一个参数传了模块命名空间字符串，就获取模块本地化的 commit，然后 执行 commit.apply(this.$store, [val].concat(args))，也就是 `this.$store.commit('muta1', ...args)`
+
+第二个也类似，相当于注册这样的 method：
+
 ```js
 methods:{
   myMuta3(...args){
-    this.$store.commit('muta3' , ...args)
+    // ...
+    return this.$store.commit('muta3' , ...args)
   }
 }
 ```
