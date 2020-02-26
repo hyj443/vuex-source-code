@@ -211,3 +211,14 @@ Vuex 2.x版本添加了命名空间的功能，使用了module后，state就被�
 
 若需要在全局命名空间内分发 action 或提交 mutation，将 { root: true } 作为第三参数传给 dispatch 或 commit 即可。
 我们看installModule的实现：
+
+
+```js
+store.commit('change') // 传 mutation 的 type 字符串
+
+store.commit({ // 传一个包含 type 的对象
+  type:'change',
+  amount: 10
+})
+
+```
