@@ -213,6 +213,66 @@ Vuex 2.x版本添加了命名空间的功能，使用了module后，state就被�
 我们看installModule的实现：
 
 
+由 Vuex 文档可知：
+
+Vuex 使用了 module 后，state 就被模块化，比如读取根模块的 state：`store.state.xxx`，如果要读取 a 模块的 state：`store.state.a.xxx`。
+
+默认情况下，模块内部的 action、mutation 和 getter 是会注册在全局命名空间的。如果不同模块有同名的 mutation，会导致这些模块能够对同一个 mutation 作出响应。
+
+如果希望你的模块具有更高的封装度和复用性，你可以通过添加 namespaced: true 的方式，使其成为带“命名空间”的模块。当模块被注册后，它的所有 getter、action 及 mutation 都会自动根据模块注册的路径调整命名。例如：
+
+```js
+const store = new Vuex.Store({
+  modules: {
+    account: {
+      namespaced: true,
+      state: {}, 
+      getters: {
+        isAdmin() {...} // -> getters['account/isAdmin']
+      },
+      actions: {
+        login() {...} // -> dispatch('account/login')
+      },
+      mutations: {
+        login() {...} // -> commit('account/login')
+      },
+      modules: { // 继承父模块的命名空间
+        myPage: {
+          state: {},
+          getters: {
+            profile() {...} // -> getters['account/profile']
+          }
+        },
+        posts: {
+          namespaced: true,// 进一步嵌套命名空间
+          state: {},
+          getters: {
+            popular() {...} // -> getters['account/posts/popular']
+          }
+        }
+      }
+    }
+  }
+})
+```
+
+
+
+```js
+const store = new Vuex.Store({
+  state:{
+    a:1
+  }
+  mutations: {
+    change(state) {
+      state.a++
+    }
+  }
+})
+```
+这其实就像注册事件的回调函数：你调用 store.commit 触发 type 为 "change" 的 mutation 时，会触发它的 handler 回调。注意，你不能直接调用 mutation 的 handler。
+
+commit 是 Store 构造函数的原型方法，用户调用 commit 提交 mutation 有不同的传参方式，比如：
 ```js
 store.commit('change') // 传 mutation 的 type 字符串
 
