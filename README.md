@@ -164,7 +164,7 @@ export function assert (condition, msg) {
 
 ```js
 const { plugins = [], strict = false } = options
-this._committing = false // 提交mutation的标志
+this._committing = false // 正在commit mutation的标志
 this._actions = Object.create(null) // 存放用户定义的所有actions
 this._actionSubscribers = [] // action订阅函数集合
 this._mutations = Object.create(null) // 存放用户定义的所有mutations
@@ -190,9 +190,9 @@ this.commit = function boundCommit (type, payload, options) {
 }
 ```
 
-store 变量保存当前 store 实例。并缓存 Store 原型的 dispatch 和 commit 方法。然后给 store 实例添加同名方法，分别实际调用原型的 dispatch 和 commit 方法，这不是多此一举，而是为了保证执行时的 this 始终指向 store 实例。
+store 变量保存当前 store 实例。并缓存 Store 原型的 dispatch 和 commit 方法。然后给 store 实例添加同名方法，分别实际调用原型的 dispatch 和 commit 方法，这不是多此一举，而是为了保证执行时的 this 始终指向 store 实例。通过形成闭包，store 始终驻留在内存中，可以被引用到。
 
-这样 commit 和 dispatch 在别的函数内调用时，this 必然指向 store 实例，比如在 dispatch 里调用 commit，或在 mutation handler 中调用 commit 提交另一个 mutation。
+这样 store.commit/store.dispatch 在别的函数内调用时，this 必然指向 store 实例，比如在 dispatch 里调用 commit，或在 mutation handler 中调用 commit 提交另一个 mutation。
 
 接着看 Store 构造函数：
 
@@ -210,7 +210,7 @@ plugins.forEach(plugin => plugin(this))
 
 调用 resetStoreVM 函数，对 state 进行响应式化处理。
 
-遍历 plugins 数组，逐个调用 Vuex 自己的插件函数。
+遍历 plugins 数组，逐个调用 Vuex 自己的插件函数，进行插件的安装。
 
 到目前为止，Store 构造函数已经过了一遍。new Store 主要做了三件事：
 
@@ -1177,9 +1177,9 @@ function resetStoreVM (store, state, hot) {
 }
 ```
 
-首先将 store._vm 赋给 oldVm，缓存一下旧的 vm 实例。然后给 store 对象上添加 getters 和 _makeLocalGettersCache 属性，值均为一个空对象。
+首先将 store._vm 赋给 oldVm，缓存一下旧的 vm 实例。然后给 store 对象上添加 getters 和 _makeLocalGettersCache 属性，值均为一个空对象，也可以看成重置。
 
-store._wrappedGetters 对象存放已注册的 getter 方法。再定义一个 computed 空对象。遍历已注册的 getter 方法，往 computed 对象添加同名方法，方法值为 partial(fn, store)。
+store._wrappedGetters 对象存放已注册的 getter 方法。再定义一个 computed 空对象。遍历 store._wrappedGetters，往 computed 对象添加同名方法，方法值为 partial(fn, store)。
 
 ```js
 function partial (fn, arg) {
@@ -1191,7 +1191,7 @@ function partial (fn, arg) {
 
 传入 partial 的是已注册的 getter 方法和 store 对象，返回一个新的函数，新函数实际执行 getter 方法，getter 执行接收 store 对象。
 
-为什么不直接给 computed 对象添加 getter。因为为了 getter 在外部调用时，也能引用 partial 函数作用域中的 store 这个私有形参，形成了闭包，而 partial 的 store 也通过闭包引用了 resetStoreVM 的私有形参 store，所以 store 不会随着 resetStoreVM 函数执行结束而销毁。否则 resetStoreVM 执行后，store 就不再驻留在内存中了，getter 方法中引用不到 store 对象。
+为什么不直接给 computed 对象添加 getter。因为为了形成闭包，getter 在外部调用时，也能引用 partial 函数作用域中的 store 这个私有形参，而 partial 的 store 也通过闭包引用了 resetStoreVM 的私有形参 store，所以 store 不会随着 resetStoreVM 函数执行结束而销毁，继续驻留在内存中了，getter 方法中始终能引用到 store 对象。
 
 接着往 store.getters 这个空对象添加只读属性，属性名是 getter 名，读取返回 store._vm[key]
 
@@ -1215,21 +1215,29 @@ store._vm = new Vue({
 })
 Vue.config.silent = silent
 ```
-首先缓存 Vue.config.silent 的值。然后将 Vue.config.silent 置为 true，创建 Vue 实例完后将它恢复为原来的值，保证了这期间 Vue 不会打印日志与警告。因为借用 Vue 创建实例的过程可能会存在一些不严格的模式，但不希望因此报错。
+首先缓存 Vue.config.silent 的值。然后将 Vue.config.silent 置为 true，new Vue 后将它恢复为原来的值，保证了这期间 Vue 不会打印日志与警告。因为借用 Vue 创建实例的过程可能会存在一些不严格的模式，但不希望因此报错。
 
-实例化 Vue 时，$$state 会转成响应式属性，它的属性值：根state 会被深度观测，内部属性也响应式化。
+$$state 会转成响应式属性，属性值：根 state 会被深度观测，内部嵌套的子 state 也响应式化。
 
-我们知道，安装了 Vuex 后，之后创建的所有 vm 实例能引用到 store 对象。读取 vm.$store.state，即读取 store.state，而 Store 构造函数有 state 原型属性：
+Store 构造函数还有一个 state 原型属性：
 ，
 ```js
 get state () {
   return this._vm._data.$$state
 }
+set state (v) {
+  if (process.env.NODE_ENV !== 'production') {
+    assert(false, `use store.replaceState() to explicit replace store state.`)
+  }
+}
 ```
+我们知道，安装了 Vuex 后，之后创建的所有 vm 实例能引用到 store 对象。因此读取 vm.$store.state 返回的是 store._vm._data.$$state
 
-返回的是 store._vm._data.$$state。我们知道，Vue 把 data 数据挂载到 vm 实例的 _data 上，所以 store._vm._data 访问到的是定义的 data 对象，store._vm._data.$$state 访问的是 data 中的 $$state，即根state。
+我们知道，Vue 把 data 数据挂载到 vm 实例的 _data 上，所以 store._vm._data 访问到的是定义的 data 对象，store._vm._data.$$state 访问的是 data 中的 $$state，即根state。
 
-这样就实现了在vm实例中，通过 vm.$store.state 访问根 state 对象，并且 state 对象内部的属性是响应式的。
+因此在组件中 vm.$store.state 就能访问到根 state，并且 state 内部的属性是响应式的。
+
+注意：直接设置 store.state 会抛出错误：请使用 replaceState API 进行 state 的替换。
 
 ```js
 store._vm = new Vue({
@@ -1237,18 +1245,11 @@ store._vm = new Vue({
   computed
 })
 ```
-并且，computed 对象作为 computed 选项传入 new Vue，里面存放的 getter 方法被注册为计算属性。
+computed 对象作为 computed 选项传入 new Vue，里面存放的 getter 方法被注册为计算属性。这样 store._vm 就代理了 getters，访问 getters 就是访问计算属性。
 
-举个例子，在某个 vm 实例中访问 vm.$store.getters.xxx，即访问 store.getters.xxx。前面讲过，Vuex 已经向 store.getters 对象添加了响应式只读属性 xxx，因此会触发 get 方法，返回 store._vm.xxx
+由前面可知，假如有个 getter 名叫 xxx，resetStoreVM 函数会向 store.getters 对象添加了响应式只读属性 xxx，返回 store._vm.xxx。
 
-```js
-Object.defineProperty(store.getters, key, {
-  get: () => store._vm[key],
-  enumerable: true
-})
-```
-
-xxx 这个 getter 名已经被注册为 store._vm 的计算属性了，所以 store._vm.xxx 可以访问到 xxx 的 getter 方法。
+因此在组件中访问 vm.$store.getters.xxx，会返回 store._vm.xxx，xxx 已经被注册为 store._vm 的计算属性了，通过 store._vm.xxx 访问到 xxx 的值。
 
 继续看 resetStoreVM：
 
@@ -1257,7 +1258,7 @@ if (store.strict) {
   enableStrictMode(store)
 }
 ```
-如果是严格模式，调用 enableStrictMode 函数，传入 store
+如果用户开启严格模式，调用 enableStrictMode 函数，传入 store
 
 ```js
 function enableStrictMode (store) {
@@ -1268,11 +1269,11 @@ function enableStrictMode (store) {
   }, { deep: true, sync: true })
 }
 ```
-由 Vue 源码可知，$watch 执行会执行 `function () { return this._data.$$state }` 函数，从而收集创建出来的 watcher，watcher 监听了 `store._vm._data.$$state` 这个数据属性，配置对象是 `{ deep: true, sync: true }` 意味着 $$state 属性值(根state)会被深度观测，当 state 发生变化时，watcher 的 update 方法执行，会重新求值，并执行 $watch 的回调函数。
+由 Vue 源码可知，$watch 执行，会执行一次 `function () { return this._data.$$state }` 函数，通过读取数据属性，收集创建出来的 watcher，watcher 监听了 `$$state` 这个属性，配置对象是 `{ deep: true, sync: true }`，意味着它的属性值(根state)会被深度观测，当 state 发生变化时，watcher 的 update 方法执行，会重新求值，并执行 $watch 的回调函数。
 
-在该回调函数中，如果当前 store._committing 为 false，则会抛错。因为 mutation 执行期间之外 _committing 都是false，说明 state 在 mutation 函数以外被修改。所以 enableStrictMode 函数为 state 设置了一个监听，在它被修改时执行回调，给用户提示。
+在该回调函数中，如果当前 store._committing 为 false，则会抛错。因为 mutation 执行期间之外 _committing 都是 false，严格模式下，state 在 mutation 之外被修改是不允许的。所以 enableStrictMode 函数为 state 创建了一个监听，它被修改时执行回调，警告用户。
 
-接着：
+接着看 resetStoreVM 的最后一部分：
 
 ```js
 if (oldVm) {
@@ -1284,7 +1285,7 @@ if (oldVm) {
   Vue.nextTick(() => oldVm.$destroy())
 }
 ```
-如果之前就创建过 store.vm，现在 resetStoreVM 要创建新的 vm 和 watcher，要销毁旧的 vm 实例，但不希望在同步代码中销毁，会阻塞代码的执行，所以调用 nextTick 方法将销毁的操作放到异步队列中。销毁旧的 vm 实例意味着会将创建的 watcher 销毁，不再监听 state 
+如果存在之前创建的旧的 Vue 实例，现在 resetStoreVM 要重新创建的 vm 和 watcher，要销毁旧的 vm 实例，但不希望在同步代码中销毁，会阻塞代码的执行，所以调用 nextTick 方法将销毁的操作放到异步。销毁 vm 实例意味着会将它上面的 watcher 销毁，不再监听 state。
 
 resetStoreVM 函数就看完了。
 
@@ -1377,7 +1378,6 @@ normalizeMap(states).forEach(({ key, val }) => {
       ? val.call(this, state, getters)
       : state[val]
   }
-  // mark vuex getter for devtools
   res[key].vuex = true
 })
 ```
@@ -1413,7 +1413,6 @@ normalizeMap(states).forEach(({ key, val }) => {
       ? val.call(this, state, getters)
       : state[val]
   }
-  // mark vuex getter for devtools
   res[key].vuex = true
 })
 ```
@@ -1491,10 +1490,15 @@ computed: {
 到此 mapState 的内部实现就讲完了。
 
 ### mapGetters
-和 mapState 的实现很像。
+
+和 mapState 的实现很像，就不分段讲了。
+
 ```js
-var mapGetters = normalizeNamespace((namespace, getters) => {
+const mapGetters = normalizeNamespace((namespace, getters) => {
   const res = {}
+  if (process.env.NODE_ENV !== 'production' && !isValidMap(getters)) {
+    console.error('[vuex] mapGetters: mapper parameter must be either an Array or an Object')
+  }
   normalizeMap(getters).forEach(({ key, val }) => {
     val = namespace + val
     res[key] = function mappedGetter () {
@@ -1512,73 +1516,85 @@ var mapGetters = normalizeNamespace((namespace, getters) => {
   return res
 })
 ```
-我们这直接讲了，不分段了。mapGetters 接收 namespace（可选）和 getters（一个map对象），mapGetters 指向 normalizeNamespace 执行返回的函数，mapGetters 执行实际执行传入 normalizeNamespace 的回调函数。
+mapGetters 接收 namespace（可选）和 getters（一个 map 对象），mapGetters 指向 normalizeNamespace 执行返回的函数，mapGetters 执行，实际执行传入 normalizeNamespace 的回调函数。
 
 用户传的 map 对象有两种形式：
 
-1. ['getter1', 'getter2']   数组项就是 store 里 getter 的实际名称
-2. { myGetter1: 'getter1'}  你想将 getter 起另外的名称，就这样使用对象去定义
+1. ['getter1', 'getter2'] 数组项就是真实 getter 名
+2. { myGetter1: 'getter1'} myGetter1 是用户起的别名，getter1 是真实 getter 名
 
-在这个回调函数中，首先定义一个待返回的对象 res，将传入的 map 对象经过 normalizeMap 处理成数组，对应上面的例子分别是：
+回调函数中，首先定义一个待返回的对象 res，将传入的 map 对象经过 normalizeMap 处理成数组，对应上面的例子分别是：
 
 1. [{'getter1':'getter1'}, {'getter2':'getter2'}]
 1. [{'myGetter1':'getter1'}]
 
-调用 forEach 函数进行遍历，key 取到数组当前遍历对象里的 key，val 取它的 val，如果存在命名空间的话，val 字符串前面还要拼上命名空间字符串
+进行 forEach 遍历数组，key 拿到当前遍历对象里的 key，val 拿到它的 val，如果 mapGetters 时传了命名空间，则 val 字符串要加上命名空间作为前缀。
 
-往 res 对象中添加键值对，属性值为 key，属性值为 mappedGetter 函数，函数执行返回 store 里的 getters 中 val 对应的 getter，最后 mapGetters 执行返回出这个 res 对象
+```js
+res[key] = function mappedGetter () {
+  if (namespace && !getModuleByNamespace(this.$store, 'mapGetters', namespace)) return
+  if (process.env.NODE_ENV !== 'production' && !(val in this.$store.getters)) {
+    console.error(`[vuex] unknown getter: ${val}`)
+    return
+  }
+  return this.$store.getters[val]
+}
+```
+往 res 对象中添加方法，方法名为 key，方法值为 mappedGetter 函数，函数执行，如果传了命名空间但没有找到它对应的模块，直接返回。如果 val 不存在于全局 getters 中，说明用户传的 getter 名有误，打印错误提示并返回
 
-所以 ...mapGetter(...) 可以直接放在 computed 选项的配置对象中，被注册为计算属性，处理函数返回值是 store.getters 对应的属性值
+上面情况都不出现的话，mappedGetter 返回全局 getters 中 val 对应的 getter，val 是考虑了命名空间的全局 getter 名。
+
+遍历结束后，mapGetters 返回出填充好的 res 对象。通过展开运算符把 res 对象展开到 computed 的选项对象中，被注册为计算属性，可以返回 store.getters 中对应的 getter。
 
 ### mapActions
 ```js
-  var mapActions = normalizeNamespace((namespace, actions) => {
-    const res = {}
-    normalizeMap(actions).forEach(({ key, val }) => {
-      res[key] = function mappedAction (...args) {
-        // get dispatch function from store
-        let dispatch = this.$store.dispatch
-        if (namespace) {
-          const module = getModuleByNamespace(this.$store, 'mapActions', namespace)
-          if (!module) return
-          dispatch = module.context.dispatch
-        }
-        return typeof val === 'function'
-          ? val.apply(this, [dispatch].concat(args))
-          : dispatch.apply(this.$store, [val].concat(args))
+const mapActions = normalizeNamespace((namespace, actions) => {
+  const res = {}
+  if (process.env.NODE_ENV !== 'production' && !isValidMap(actions)) {
+    console.error('[vuex] mapActions: mapper parameter must be either an Array or an Object')
+  }
+  normalizeMap(actions).forEach(({ key, val }) => {
+    res[key] = function mappedAction (...args) {
+      // get dispatch function from store
+      let dispatch = this.$store.dispatch
+      if (namespace) {
+        const module = getModuleByNamespace(this.$store, 'mapActions', namespace)
+        if (!module) return
+        dispatch = module.context.dispatch
       }
-    })
-    return res
+      return typeof val === 'function'
+        ? val.apply(this, [dispatch].concat(args))
+        : dispatch.apply(this.$store, [val].concat(args))
+    }
   })
+  return res
+})
 ```
 
-和前面俩一样，mapActions 执行实际执行传入 normalizeNamespace 的回调。
+和前面俩一样，mapActions 执行，实际执行传入 normalizeNamespace 的回调。
 
-在回调函数中，准备一个空对象 res。
+在回调中，首先创建了一个空对象 res。mapActions 接收的 actions 对象必须是数组或纯对象。
 
-normalizeMap 会将 mapActions 接收的 action 对象格式化成一个数组，每一项都是一个类似这样的对象：{ key: key, val: val }，遍历数组，往 res 对象中添加键值对：action 名和它对应的 mappedAction 函数。res 对象经过展开后可以注册在 methods 选项对象中，所以这个 mappedAction 函数就是一个 method。
+normalizeMap 将 mapActions 接收的 action 对象转成一个数组，每项都是 { key, val } 这样的对象，遍历数组，往 res 对象中添加方法：方法名为 action 名，方法值为 mappedAction 函数。res 对象经过展开后注册在 methods 选项对象中，所以该 mappedAction 函数就是一个 method。
 
-args 是 mappedAction 函数所接收的参数数组，这个函数中，首先用 dispatch 变量缓存 this.$store.dispatch 的方法，如果 namespace 存在，说明 mapActions 时传入的第一个参数是带命名空间的字符串，根据 namespace 获取对应的模块，获取不到就直接返回，然后把 dispatch 变量覆盖为所找到的模块对应的 dispatch 方法，这是 local 的本地化的 dispatch。
+args 是 method 所接收的参数数组，这个函数中，首先用 dispatch 变量缓存 store.dispatch 方法，如果 namespace 传了，则根据 namespace 获取对应的模块，获取不到就直接返回，获取到就把 dispatch 覆盖为所找到的模块对应的 dispatch 方法，即本地 dispatch。
 
-最后判断 val 是否是函数，即用户传入的 map 对象的 val 是否是函数，是则直接调用，this 指向当前 Vue 实例。
-
-如果不是一个函数，则调用 dispatch 方法，this 指向 store 对象，传入 action 的实际名称，即 val，和作为 method 接收的参数 args。比如，用户会这么写：
+最后判断用户传的 map 对象中的 val 是否是函数，如果是，则直接调用并返回，this 指向当前 Vue 实例。如果不是函数，则调用 dispatch 方法，this 指向 store 对象，传入 action 名 val，和作为 method 接收的参数 args。比如，用户会这么写：
 ```js
 methods:{
   ...mapActions(['action1', 'action2']),
-
   ...mapActions({
     myAction3: 'action3'
   }),
 }
 ```
-第一个mapActions执行返回的对象大致是：{ 'action1': 函数1, 'action2': 函数2 }
+第一个 mapActions 返回的对象类似：{ 'action1': 函数1, 'action2': 函数2 }
 
-这个对象被展开后，混入 methods 配置对象中，那么函数 1 作为 method，它接收的参数组成了数组 args
+该对象被展开后，混入到 methods 选项对象中，则函数1成为 method，接收的参数数组为 args。
 
-函数 1 主要是调用 dispatch.apply(this.$store, [val].concat(args))，即 this.$store.dispatch('action1', ...args)
+函数1执行，主要是调用 dispatch 来分发该 action。dispatch.apply(this.$store, [val].concat(args))，举例来说：this.$store.dispatch('action1', ...args)
 
-就像下面这样：
+注册为 method 后，就相当于一个用来分发 action1 的 method：
 
 ```js
 methods：{
@@ -1588,9 +1604,9 @@ methods：{
   }
 }
 ```
-第二个 mapActions 执行返回的对象，会像这样：{ 'myAction3' : 函数3 }
+第二个 mapActions 执行返回的对象，会像这样：{ 'myAction3' : 函数3 }。它被展开后混入 methods 的选项对象中，它接收的参数组成了数组 args。
 
-这个对象被展开后混入 methods 配置对象中，它接收的参数组成了数组 args。
+注册为 method 后，就相当于一个用来分发 myAction3 的 method：
 
 ```js
 methods：{
@@ -1601,32 +1617,33 @@ methods：{
 }
 ```
 
-所以函数 3 主要就是调用并返回 this.$store.dispatch('action3', ...args)
-
 ### mapMutations
 
 ```js
-var mapMutations = normalizeNamespace((namespace, mutations) => {
-    const res = {}
-    normalizeMap(mutations).forEach(({ key, val }) => {
-      res[key] = function mappedMutation (...args) {
-        let commit = this.$store.commit
-        if (namespace) {
-          const module = getModuleByNamespace(this.$store, 'mapMutations', namespace)
-          if (!module) return
-          commit = module.context.commit
-        }
-        return typeof val === 'function'
-          ? val.apply(this, [commit].concat(args))
-          : commit.apply(this.$store, [val].concat(args))
+const mapMutations = normalizeNamespace((namespace, mutations) => {
+  const res = {}
+  if (process.env.NODE_ENV !== 'production' && !isValidMap(mutations)) {
+    console.error('[vuex] mapMutations: mapper parameter must be either an Array or an Object')
+  }
+  normalizeMap(mutations).forEach(({ key, val }) => {
+    res[key] = function mappedMutation (...args) {
+      let commit = this.$store.commit
+      if (namespace) {
+        const module = getModuleByNamespace(this.$store, 'mapMutations', namespace)
+        if (!module) return
+        commit = module.context.commit
       }
-    })
-    return res
+      return typeof val === 'function'
+        ? val.apply(this, [commit].concat(args))
+        : commit.apply(this.$store, [val].concat(args))
+    }
   })
+  return res
+})
 ```
-同样的，mapMutations 执行相当于执行 (namespace, mutations) => {....} 这个回调，返回出对象 res。
+同样的，mapMutations 执行，实际执行 normalizeNamespace 的回调，返回对象 res。
 
-用户可以这么使用：
+用户可以这么使用 mapMutations：
 
 ```js
 methods: {
@@ -1634,11 +1651,11 @@ methods: {
   ...mapMutations({ myMuta3: 'muta3' })
 }
 ```
-比如第一个，返回的 res 对象就像这样: { 'muta1': 函数1 ,  'muta2': 函数2  }
+比如第一个，返回的 res 对象形似: { 'muta1': 函数1 ,  'muta2': 函数2  }
 
-将这个对象展开放入 methods 配置对象中，'muta1' 就成了 method 名，method 值为函数1，函数 1 接收的参数数组为 args
+将这个对象展开放入 methods 选项对象中，'muta1' 成为 method 名，method 值为函数1，函数1接收的参数数组为 args
 
-函数1 就是源码中的 mappedMutation 函数，它首先获取 this.$store.commit，如果用户在 mapMutation 时第一个参数传了模块命名空间字符串，就获取模块本地化的 commit，然后 执行 commit.apply(this.$store, [val].concat(args))，也就是 `this.$store.commit('muta1', ...args)`
+函数1就是 mappedMutation 函数，它首先获取 store.commit，如果用户在 mapMutation 时第一个参数传了模块命名空间字符串，则获取模块的本地 commit，然后执行 commit.apply(this.$store, [val].concat(args))，即 `this.$store.commit('muta1', ...args)`
 
 第二个也类似，相当于注册这样的 method：
 
@@ -1646,9 +1663,27 @@ methods: {
 methods:{
   myMuta3(...args){
     // ...
-    return this.$store.commit('muta3' , ...args)
+    return this.$store.commit('muta3', ...args)
   }
 }
 ```
+用户也可以这么使用 mapMutations：
 
-现在好像 Vuex源码基本分析完了。。
+```js
+methods: {
+  ...mapMutations({
+    myMuta4 (commit){
+      commit('muta4')
+    }
+  })
+}
+```
+myMuta4 被注册为 method 名，相当于注册这样的 method：
+```js
+methods: {
+  myMuta4(commit, ...args){
+    // ...
+    return commit('muta4', ...args)
+  }
+}
+```
