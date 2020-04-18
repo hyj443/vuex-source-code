@@ -20,6 +20,7 @@ export default class Module {
 
   addChild (key, module) {
     this._children[key] = module
+    
   }
 
   removeChild (key) {
@@ -28,6 +29,10 @@ export default class Module {
 
   getChild (key) {
     return this._children[key]
+  }
+
+  hasChild (key) {
+    return key in this._children
   }
 
   update (rawModule) {

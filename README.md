@@ -1286,7 +1286,7 @@ resetStoreVM 函数就看完了。
 
 ### mapState
 
-在组件中使用 state 数据 xxx 可以通过 this.$store.state.xxx，为了简便，可以将 xxx 声明为当前组件的计算属性。当一个组件需要使用到多个 state 时，逐一声明为计算属性也很麻烦。这时就需要 mapState 辅助函数：
+在组件中可以通过 this.$store.state.xxx 使用 state 数据 xxx，但书写有点麻烦，为了简便，可以将 xxx 声明为当前组件的计算属性。当组件需要使用到多个 state，逐一声明也很麻烦。这时就需要 mapState 辅助函数：
 ```js
 const mapState = normalizeNamespace((namespace, states) => {
   var res = {};
@@ -1315,9 +1315,10 @@ function normalizeNamespace (fn) {
   }
 }
 ```
-normalizeNamespace 接收函数 fn，返回新的函数，因此 mapState 指向该新函数。如果 namespace 接收的不是字符串，就把它赋给 map，namespace 赋为''。如果 namespace 是字符串，但末尾字符不是"/" ，会给它的末尾加上"/"。
+normalizeNamespace 接收函数 fn，返回新的函数，因此 mapState 指向该新函数。如果用户调用 mapState 时传的第一个参数不是字符串，就把它赋给 map，namespace 赋为 ''。如果传的第一个参数是字符串，但不是以"/"结尾，则给它的末尾加上"/"。
 
-处理后的 namespace 和 map 传入 fn 执行，mapState 函数最后返回它的执行结果：
+处理后的 namespace 和 map 传入 fn 执行，mapState 函数返回 fn 的执行结果。
+
 ```js
 const mapState = normalizeNamespace((namespace, states) => {
   var res = {};
@@ -1331,9 +1332,9 @@ const mapState = normalizeNamespace((namespace, states) => {
 });
 ```
 
-fn 执行，规定 states 必须是数组或纯对象，并最后返回 res 对象。因此 mapState 函数返回 res 对象。
+fn 执行，首先会创建空对象 res，如果接收的 states 不是数组或纯对象，开发环境下会给出报错提示，最后返回 res 对象，中间的过程就是填充 res 对象。因此 mapState 函数返回 res 对象。
 
-继续看回调 fn，normalizeMap(states) 返回了什么？
+仔细看回调 fn，normalizeMap(states) 返回了什么？
 
 ```js
 function normalizeMap (map) {
@@ -1343,7 +1344,7 @@ function normalizeMap (map) {
     : Object.keys(map).map(key => ({ key, val: map[key] }))
 }
 ```
-normalizeMap(states) 的 states 即用户调用 mapState 时传入的数组或对象，如果都不是，让它为[]，如果 states 为数组，比如 mapState(['count', 'hhah'])，则将数组每项 key 字符串转成{ key: key, val: key }。
+normalizeMap(states) 的 states 是用户调用 mapState 时传入的数组或对象，如果它为数组，比如 mapState(['price', 'amount'])，则将数组的每项 key 转成 { key: key, val: key }。
 
 ```js
 mapState({
@@ -1352,9 +1353,9 @@ mapState({
 })
 ```
 
-如上，如果 states 是对象，获取对象中的所有属性组成的数组，将数组的每项 key 字符串转成 { key: key, val: map[key] }
+如果 states 传的是类似上面这样的对象，normalizeMap 会获取对象中的所有属性组成的数组，将数组的每项 key 转成 { key: key, val: map[key] }
 
-可见 normalizeMap 函数将调用 mapState 时传入的 map 转成一个由对象组成的数组。然后对它 forEach 遍历：
+可见 normalizeMap 函数将调用 mapState 时传入的 map 归一化为一个由对象组成的数组。然后对它进行遍历：
 
 ```js
 normalizeMap(states).forEach(({ key, val }) => {
@@ -1377,7 +1378,7 @@ normalizeMap(states).forEach(({ key, val }) => {
 
 forEach 的回调中，key 拿到当前遍历对象中的 key 值，val 拿到对象中的 val 值。然后给 res 对象添加方法，方法名为 key，方法为 mappedState 函数。
 
-mappedState 函数首先获取到全局 state 和 getters 赋给 state 和 getters。如果用户调用 mapState 传了 namespace 字符串，否则它为''，所以如果 namespace 存在，调用 getModuleByNamespace 获取对应的 module 对象。
+mappedState 函数首先获取到全局 state 和 getters 赋给 state 和 getters。如果用户调用 mapState 传了 namespace 字符串，即 namespace 存在，则调用获取命名空间对应的 module 对象。如果用户调用 mapState 时没传 namespace，则 namespace 此时为 ''，不会执行 if 语句块。
 
 ```js
 function getModuleByNamespace (store, helper, namespace) {
@@ -1389,7 +1390,7 @@ function getModuleByNamespace (store, helper, namespace) {
 }
 ```
 
-我们知道，经过 installModule 后，所有命名空间和它对应的模块对象已经缓存到 store._modulesNamespaceMap。在该对象中找到并返回 namespace 对应的 module。
+经过 installModule 之后，所有命名空间和对应的模块对象已经缓存到 store._modulesNamespaceMap。在里面可以找到并返回命名空间对应的 module。
 
 ```js
 normalizeMap(states).forEach(({ key, val }) => {
@@ -1409,31 +1410,30 @@ normalizeMap(states).forEach(({ key, val }) => {
   res[key].vuex = true
 })
 ```
-如果用户 mapstate 传的命名空间没有写对，没有获取到对应的 module，则 mappedState 就直接返回。如果获取到了，则把当前模块的 state 和 getters 覆盖给 state 和 getters，说明如果用户 mapstate 时传了命名空间，并且它有对应的模块，则 state 和 getters 是本地的 state 和 getters。
+如果用户 mapstate 传的命名空间没有写对，没有获取到对应的 module，则 mappedState 就直接返回。如果获取到了，则把当前模块的 state 和 getters 覆盖给 state 和 getters，说明如果用户 mapstate 时传了命名空间，会尝试找到它对应的模块，因为用户希望获取的是本地模块的 state。
 
 mappedState 函数会根据 val 是否是函数，返回 val.call(this, state, getters) 或 state[val]
 
-val 是 normalizeMap(states) 数组中当前遍历对象的 val 值，如果它是函数，说明用户调用 mapState 传的是包含函数的对象，则直接调用 val，执行时 this 指向当前 Vue 实例，因为 mapState 调用的环境中，this 指向当前 Vue 实例。val 执行传入 state，getters，说明用户书写 val 函数可以接收到 state 和 getters。
+val 是 normalizeMap(states) 数组中当前遍历对象的 val 值，如果它是函数，说明用户调用 mapState 传的是包含函数的对象，则直接调用 val，执行时 this 指向当前 Vue 实例，因为 mapState 调用的环境中，this 指向当前 Vue 实例。val 执行传入 state，getters，说明用户书写 val 函数可以接收到 state 和 getters，至于是本地的还是全局的 state 和 getters，取决于用户 mapState 时是否传了命名空间字符串。
 
-如果 val 不是函数，说明用户调用 mapState 传的是由 state 名组成的数组，那么返回 state 对象中 val 对应的 state 值。
+如果 val 不是函数，则它是用户传入的 state 名称字符串，则返回 state 对象中 val 对应的 state 值，至于是本地的还是全局的 state，取决于用户 mapState 时是否传了命名空间字符串。
 
-综上可知：mapState 函数的第一个参数可以选传模块的命名空间字符串，第二个参数可以传由 state 名组成的数组，这样 state 名就映射为同名的计算属性。也可以传一个对象，属性是自定义属性名，属性值可以是函数，也可以是 state 名字符串。
+综上可知：mapState 函数的第一个参数可以选传具体模块的命名空间字符串，第二个参数可以传由 state 名组成的数组，也可以传一个对象，属性名是自定义属性名，属性值可以是函数，也可以是 state 名字符串。
 
-mapState 最后返回 res 对象，里面存放的属性名可能是 state 名，或用户自定义的属性名，属性值是 mappedState 函数，函数执行返回 state 对象中对应 state 值，或是 val 函数的执行返回值
+mapState 最后返回 res 对象，里面存放的属性名可能是 state 名，也可能是用户自定义的别名，属性值是 mappedState 函数，它执行返回 state 对象中对应 state 值，或是 val 函数的执行返回值
 
-因此，你可以这么使用mapState
+因此，你可以这么使用mapState：
 
-比如
 ```js
 computed: mapState({
   count: state => state.count,
   countAlias: 'count',  
-  countPlus (state) { //没有用箭头函数，因为this要指向当前组件实例
+  countPlus (state) { // 没有用箭头函数，因为this要指向当前组件实例
     return state.count + this.localCount
   }
 })
 ```
-传入 mapState 的对象就是 map 对象，经过 normalizeMap 的处理，转成由对象{ key, val }组成的数组，遍历该数组，往 res 对象里添加方法，方法名为 key，如果 val 是函数，就直接返回 val 的执行结果，如果不是，就返回 state 中 val 的值。
+传入 mapState 的就是 map 对象，经过 normalizeMap 的处理，转成由对象{ key, val }组成的数组，遍历数组，往 res 对象里添加方法，方法名为 key，方法执行会根据 val 是否为函数，返回 val 的执行结果或 state 中 val 的值。
 
 用户给 mapState 传入的 map 可以是数组，比如：
 
@@ -1443,9 +1443,9 @@ computed: mapState([
   'xxxxx'
 ])
 ```
-mapState 会将数组的每项转成 {'count': 'count'} 这样的对象，遍历数组，往 res 对象添加方法，方法名为'count'，方法本身执行返回 store.state.count
+传入的数组的每项转成类似 {'count': 'count'}，遍历数组，往 res 对象添加方法，方法名为 'count'，方法本身执行返回全局 state 中的 count。
 
-mapState 返回的 res 对象，利用对象展开运算符，将里面的方法直接混入到 computed 的选项对象中，且不会影响用户定义别的计算属性：
+mapState 返回的 res 对象，用户可以利用对象展开运算符，将里面的方法直接混入到 computed 的选项对象中，不会影响用户定义别的计算属性：
 
 ```js
 computed: {
@@ -1466,9 +1466,7 @@ computed: {
   })
 },
 ```
-"a"、"b" 是用户起的计算属性名，属性值是返回 state 数据的函数，这样就能绑定带命名空间的模块，但这么写明显比较繁琐。
-
-用户 mapState 时第一个参数可以传模块的空间命名字符串，这样所有的绑定会自动将该模块作为上下文。
+"a"、"b" 是用户起的计算属性名，属性值是返回嵌套模块中的 state 数据的函数，这样就能获取本地模块的 state，但这么写明显比较繁琐。用户可以在 mapState 的第一个参数传模块的命名空间，这样所有的绑定会自动将该模块作为上下文。
 
 ```js
 computed: {
@@ -1478,7 +1476,7 @@ computed: {
   })
 },
 ```
-前面说过，mapState 会根据命名空间获取对应的模块，然后函数中的 state 就不再是全局 state，而被覆盖为对应模块的本地 state，剩下的逻辑和前面一样，传入的 map 对象中的函数的 state 参数拿到的是当前模块的本地 state。
+前面说过，mapState 会根据命名空间获取对应的模块，传入 map 对象中的函数中的 state 拿到的不是全局 state，而是对应模块的本地 state，其余逻辑不变。
 
 到此 mapState 的内部实现就讲完了。
 
@@ -1511,17 +1509,11 @@ const mapGetters = normalizeNamespace((namespace, getters) => {
 ```
 mapGetters 接收 namespace（可选）和 getters（一个 map 对象），mapGetters 指向 normalizeNamespace 执行返回的函数，mapGetters 执行，实际执行传入 normalizeNamespace 的回调函数。
 
-用户传的 map 对象有两种形式：
+用户传的 map 对象有两种形式：1、['getter1', 'getter2']，每项是 getter 名。2、{ myGetter1: 'getter1' } myGetter1 是用户起的别名，getter1 是 getter 名。
 
-1. ['getter1', 'getter2'] 数组项就是真实 getter 名
-2. { myGetter1: 'getter1'} myGetter1 是用户起的别名，getter1 是真实 getter 名
+回调函数中，首先定义空对象 res，将传入的 map 对象经过 normalizeMap 处理成数组，对应上面的例子分别是：1. [{'getter1': 'getter1'}, {'getter2': 'getter2'}] 2. [{'myGetter1': 'getter1'}]
 
-回调函数中，首先定义一个待返回的对象 res，将传入的 map 对象经过 normalizeMap 处理成数组，对应上面的例子分别是：
-
-1. [{'getter1':'getter1'}, {'getter2':'getter2'}]
-1. [{'myGetter1':'getter1'}]
-
-进行 forEach 遍历数组，key 拿到当前遍历对象里的 key，val 拿到它的 val，如果 mapGetters 时传了命名空间，则 val 字符串要加上命名空间作为前缀。
+接着遍历数组，key 拿到当前遍历对象里的 key，val 拿到它的 val，如果 mapGetters 时传了命名空间，则 val 字符串要加上命名空间作为前缀，val 就是考虑了命名空间的 getter 名。
 
 ```js
 res[key] = function mappedGetter () {
@@ -1533,11 +1525,11 @@ res[key] = function mappedGetter () {
   return this.$store.getters[val]
 }
 ```
-往 res 对象中添加方法，方法名为 key，方法值为 mappedGetter 函数，函数执行，如果传了命名空间但没有找到它对应的模块，直接返回。如果 val 不存在于全局 getters 中，说明用户传的 getter 名有误，打印错误提示并返回
+往 res 对象中添加方法，方法名为 key，值为 mappedGetter 函数，函数执行，如果传入了命名空间但没有找到它对应的模块，直接返回。如果 val 不存在于全局 getters 中，说明用户传的 getter 名有误，打印错误提示并返回
 
-上面情况都不出现的话，mappedGetter 返回全局 getters 中 val 对应的 getter，val 是考虑了命名空间的全局 getter 名。
+上面情况都不出现的话，mappedGetter 返回全局 getters 中 val 对应的 getter。
 
-遍历结束后，mapGetters 返回出填充好的 res 对象。通过展开运算符把 res 对象展开到 computed 的选项对象中，被注册为计算属性，可以返回 store.getters 中对应的 getter。
+遍历结束后，mapGetters 返回出填充好的 res 对象。用户可以用展开运算符把 res 对象展开到 computed 的选项对象中，从而注册为计算属性，可以返回全局 getters 中对应的 getter。
 
 ### mapActions
 ```js
@@ -1564,30 +1556,23 @@ const mapActions = normalizeNamespace((namespace, actions) => {
 })
 ```
 
-和前面俩一样，mapActions 执行，实际执行传入 normalizeNamespace 的回调。
+和前面俩一样，mapActions 执行，实际执行传入 normalizeNamespace 的回调。在回调中，首先创建空对象 res。mapActions 接收的 actions 必须是数组或纯对象，normalizeMap 会将该 action 转成一个数组，每项都类似 { key, val }，遍历数组，往 res 对象中添加方法：方法名为 action 名，值为 mappedAction 函数。res 对象经过展开后传入 methods 选项对象中，所以 mappedAction 函数就注册为一个 method。
 
-在回调中，首先创建了一个空对象 res。mapActions 接收的 actions 对象必须是数组或纯对象。
+args 是 method 所接收的参数数组，在 method 中，首先把 store.dispatch 方法赋给 dispatch，如果 mapActions 调用时传了 namespace，则获取它对应的模块，获取不到就直接返回，获取到就把 dispatch 覆盖为模块对应的本地 dispatch。
 
-normalizeMap 将 mapActions 接收的 action 对象转成一个数组，每项都是 { key, val } 这样的对象，遍历数组，往 res 对象中添加方法：方法名为 action 名，方法值为 mappedAction 函数。res 对象经过展开后注册在 methods 选项对象中，所以该 mappedAction 函数就是一个 method。
+最后判断用户传的 map 对象中的 val 是否是函数，如果是，则直接调用并返回，this 指向当前 Vue 实例。如果不是函数，则调用 dispatch 方法，this 指向 store 对象，传入 action 名 val，和作为 method 接收的参数。因此，由 mappedAction 函数注册成的 method 就是用来分发 action 的。
 
-args 是 method 所接收的参数数组，这个函数中，首先用 dispatch 变量缓存 store.dispatch 方法，如果 namespace 传了，则根据 namespace 获取对应的模块，获取不到就直接返回，获取到就把 dispatch 覆盖为所找到的模块对应的 dispatch 方法，即本地 dispatch。
+用户可以这么使用 mapActions：
 
-最后判断用户传的 map 对象中的 val 是否是函数，如果是，则直接调用并返回，this 指向当前 Vue 实例。如果不是函数，则调用 dispatch 方法，this 指向 store 对象，传入 action 名 val，和作为 method 接收的参数 args。比如，用户会这么写：
 ```js
 methods:{
-  ...mapActions(['action1', 'action2']),
+  ...mapActions(['action1','action2']),
   ...mapActions({
     myAction3: 'action3'
   }),
 }
 ```
-第一个 mapActions 返回的对象类似：{ 'action1': 函数1, 'action2': 函数2 }
-
-该对象被展开后，混入到 methods 选项对象中，则函数1成为 method，接收的参数数组为 args。
-
-函数1执行，主要是调用 dispatch 来分发该 action。dispatch.apply(this.$store, [val].concat(args))，举例来说：this.$store.dispatch('action1', ...args)
-
-注册为 method 后，就相当于一个用来分发 action1 的 method：
+第一个 mapActions 返回的对象经过展开后，混入到 methods 选项对象中，注册成了 method，用来分发 action1 这个 action，相当于这样：
 
 ```js
 methods：{
@@ -1597,9 +1582,7 @@ methods：{
   }
 }
 ```
-第二个 mapActions 执行返回的对象，会像这样：{ 'myAction3' : 函数3 }。它被展开后混入 methods 的选项对象中，它接收的参数组成了数组 args。
-
-注册为 method 后，就相当于一个用来分发 myAction3 的 method：
+第二个 mapActions 返回的对象经过展开后混入 methods 选项对象中，注册 为 method，用来分发 action3 这个 action，相当于这样：
 
 ```js
 methods：{
@@ -1634,36 +1617,18 @@ const mapMutations = normalizeNamespace((namespace, mutations) => {
   return res
 })
 ```
-同样的，mapMutations 执行，实际执行 normalizeNamespace 的回调，返回对象 res。
+同样的，mapMutations 执行，实际执行 normalizeNamespace 的回调，在回调中，准备了 res 对象，并对 res 对象进行填充最后返回出 res。
+
+normalizeMap(mutations) 会对用户调用 mapMutations 时传入的 mutations 对象(可能是数组或对象)规范化为一个数组，每项是 {key, val} 形式的对象。遍历数组，解构出 key (即mutation名)和 val 属性值。遍历过程中，给 res 对象添加方法：方法名为 mutation 名，值为 mappedMutation 函数。
+
+在 mappedMutation 函数中，首先将 store.commit 赋给 commit，如果用户调用 mapMutations 时传了命名空间，则获取它对应的模块的本地 commit 方法，覆盖给 commit。最后根据 val 是否是函数，如果是函数，返回 val 函数的执行结果，如果不是函数，返回 commit 的调用结果，传入 val 这个 mutation 名和参数。
 
 用户可以这么使用 mapMutations：
 
 ```js
 methods: {
   ...mapMutations(['muta1',  'muta2' ]),
-  ...mapMutations({ myMuta3: 'muta3' })
-}
-```
-比如第一个，返回的 res 对象形似: { 'muta1': 函数1 ,  'muta2': 函数2  }
-
-将这个对象展开放入 methods 选项对象中，'muta1' 成为 method 名，method 值为函数1，函数1接收的参数数组为 args
-
-函数1就是 mappedMutation 函数，它首先获取 store.commit，如果用户在 mapMutation 时第一个参数传了模块命名空间字符串，则获取模块的本地 commit，然后执行 commit.apply(this.$store, [val].concat(args))，即 `this.$store.commit('muta1', ...args)`
-
-第二个也类似，相当于注册这样的 method：
-
-```js
-methods:{
-  myMuta3(...args){
-    // ...
-    return this.$store.commit('muta3', ...args)
-  }
-}
-```
-用户也可以这么使用 mapMutations：
-
-```js
-methods: {
+  ...mapMutations({ myMuta3: 'muta3' }),
   ...mapMutations({
     myMuta4 (commit){
       commit('muta4')
@@ -1671,7 +1636,8 @@ methods: {
   })
 }
 ```
-myMuta4 被注册为 method 名，相当于注册这样的 method：
+它们被注册为 method 后，相当于这样的 method，这样的 method 是用来提交 mutation 的：
+
 ```js
 methods: {
   myMuta4(commit, ...args){
@@ -1680,3 +1646,15 @@ methods: {
   }
 }
 ```
+
+于是我们讲完了4个辅助函数：mapState, mapGetters, mapMutations, mapActions 的原理，总结一下就是：
+
+前两者是将 state/getter 名注册为计算属性名，然后 mappedState/mappedGetter 函数作为计算属性的 getter 函数，它的执行会返回对应的 state/getter。
+
+后两者是将 mutation/action 名注册为 method 名，然后 mappedAction/mappedMutation 函数作为 method 方法，执行会分别 dispatch/commit 对应的 action 和 mutation。
+
+
+
+ 
+ 
+ 
