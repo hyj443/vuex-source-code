@@ -979,11 +979,11 @@ forEachChild (fn) {
 
 
 ## Store原型方法commit和dispatch
-### commit
+### commit 原型方法
 
-更改 state 只能通过提交 mutation，mutation 和事件类似：每个 mutation 都有一个事件类型 type 和回调函数 handler，handler 是用户书写的，它接收 local.state 作为第一个参数。
+Vuex 的设计是：更改 state 只能通过提交 mutation，mutation 和事件类似：每个 mutation 都有一个事件类型 type 和用户书写的回调 handler，它接收当前模块的 state 作为第一个参数。
 
-commit 是 Store 的原型方法：
+commit 是 Store 的原型方法，它就是用来提交 mutation：
 
 ```js
 commit (_type, _payload, _options) {
@@ -1001,23 +1001,15 @@ commit (_type, _payload, _options) {
       handler(payload)
     })
   })
+  this._subscribers
+    .slice()
+    .forEach(sub => sub(mutation, this.state))
   // ...
 }
 ```
-commit 可以接收 3 个参数：
+commit 可以接收 3 个参数：_type：要提交的 mutation 的 type；_payload：载荷对象；_options：配置对象，比如可以传 root: true，它允许在命名空间模块里提交根的 mutation。
 
-1. _type：要提交的 mutation 的 type 字符串
-2. _payload：载荷对象
-3. _options：配置对象，比如可以传 root: true，它允许在命名空间模块里提交根的 mutation
-
-我们分段来看看 commit 的代码：
-
-```js
-const {type, payload, options} = unifyObjectStyle(_type, _payload, _options)
-const mutation = { type, payload }
-```
-
-unifyObjectStyle 函数对参数做统一化处理。再解构出 type, payload, options 变量。
+首先调用 unifyObjectStyle 函数对参数归一化处理。再解构出 type, payload, options 变量。
 
 ```js
 const entry = this._mutations[type]
@@ -1028,9 +1020,7 @@ if (!entry) {
   return
 }
 ```
-接着获取 store._mutations 对象中的 type 对应的数组，它存放该 type 对应的 mutation 处理函数。如果该数组不存在，说明该 mutation 没有注册过，无法提交该 mutation，在开发环境下打印警告，并直接返回。
-
-接下来，继续看：
+接着获取 store._mutations 对象中的 type 对应的数组，它存放该 type 对应的 mutation 处理函数。如果该数组不存在，说明想提交的该 mutation 没有注册过，无法提交它，打印警告并直接返回。
 
 ```js
 this._withCommit(() => {
@@ -1040,23 +1030,20 @@ this._withCommit(() => {
 })
 ```
 
-遍历 store._mutations[type] 数组，执行数组里的 handler，传入用户调用 commit 时传入的 payload。因为 handler 执行是在修改 state，所以 _withCommit 的包裹保证 store._committing 为 true。
+遍历 type 对应的 handler 数组，逐个执行数组里的 handler，传入用户调用 commit 时传入的载荷对象。因为这是在修改 state，所以放在 _withCommit 的回调中执行保证 store._committing 为 true。
 
-接下来:
 ```js
 this._subscribers
     .slice()
     .forEach(sub => sub(mutation, this.state))
 ```
-store._subscribers 数组存放的是订阅 mutation 的函数，commit 提交 mutation 时，将数组中所有的订阅函数逐个执行，传入{ type, payload }和根state。通过 store.subscribe 方法注册订阅 mutation 的函数，用于追踪 state 的变化。
+store._subscribers 数组存放的是订阅 mutation 的函数，遍历执行 handler 后，逐个执行数组中所有的订阅函数。订阅 mutation 的函数是通过 store.subscribe 方法注册的，用于追踪 state 的变化。
 
-mutation 中必须是同步操作，全部 state 的改变都用同步实现。状态改变后，订阅函数执行，马上就追踪到一个新的状态。如果 mutation 中异步改变状态，订阅函数执行时，异步操作还没执行，状态的改变变得不可追踪。
+mutation 中改变 state 的操作必须是同步的。state 改变后，订阅函数执行，就能跟踪到一个新的状态。如果 mutation 中是异步改变状态，订阅函数执行时，异步操作还没执行，状态的改变变得不可追踪。
 
-### dispatch
+### dispatch 原型方法
 
-dispatch 也是 Store 的原型方法，作用是分发 action。action 类似于 mutation，不同的是 action 不可以直接更改状态，但可以提交 mutation，且可以包含异步操作。
-
-dispatch 的代码比较长，分段看：
+dispatch 也是 Store 的原型方法，作用是分发 action。action 不同于 mutation 的是：action 不可以直接更改状态，但可以提交 mutation，且可以包含异步操作。
 
 ```js
 dispatch (_type, _payload) {
@@ -1069,31 +1056,40 @@ dispatch (_type, _payload) {
     }
     return
   }
-  // ....
-}
-```
-unifyObjectStyle 先做参数做归一化。归一化后的 type, payload 放入一个对象 action
-
-store._actions[type] 是存放 type 对应的 action 方法的数组。如果该数组不存在，说明该 type 的 action 还没注册，报警提示，然后直接返回。
-
-继续看 dispatch：
-
-```js
-try {
-  this._actionSubscribers
-    .slice()
-    .filter(sub => sub.before)
-    .forEach(sub => sub.before(action, this.state))
-} catch (e) {
-  if (process.env.NODE_ENV !== 'production') {
-    console.warn(`[vuex] error in before action subscribers: `)
-    console.error(e)
+  try {
+    this._actionSubscribers
+      .slice()
+      .filter(sub => sub.before)
+      .forEach(sub => sub.before(action, this.state))
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[vuex] error in before action subscribers: `)
+      console.error(e)
+    }
   }
+  const result = entry.length > 1
+    ? Promise.all(entry.map(handler => handler(payload)))
+    : entry[0](payload)
+  return result.then(res => {
+    try {
+      this._actionSubscribers
+        .filter(sub => sub.after)
+        .forEach(sub => sub.after(action, this.state))
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[vuex] error in after action subscribers: `)
+        console.error(e)
+      }
+    }
+    return res
+  })
 }
 ```
-遍历 store._actionSubscribers 数组，过滤出存在 before 方法的项，再将所有 before 方法遍历执行。try catch 语句捕获这个过程中的错误。
+unifyObjectStyle 先做参数做归一化。store._actions[type] 数组存放 type 对应的已注册的 action 方法。如果该数组不存在，说明该 type 的 action 没有注册，无法分发它，给出错误提示并直接返回。
 
-再接下来：
+接着遍历 store._actionSubscribers 数组，过滤出存在 before 方法的项，再将所有 before 方法遍历执行。try catch 语句捕获这个过程中的错误。
+
+重点是接下来：
 
 ```js
 const result = entry.length > 1
@@ -1104,7 +1100,8 @@ return result.then(res => {
   return res
 })
 ```
-如果 action type 对应的 handler 有多个，可能每个都用 promise 管控了异步操作。如果只是遍历执行这些处理函数：entry.map(handler => handler(payload))，返回的数组赋给 result，由于这是同步代码，所以 result 数组里的 promise 的状态都是等待态，等异步有了结果，result 数组里的单个 promise 才会改变状态。
+
+如果 action type 对应的 handler 有多个，可能每个都用 promise 管控了异步操作。如果只是遍历执行这些处理函数：entry.map(handler => handler(payload))，返回的数组赋给 result，由于这是同步代码，所以 result 数组里的 promise 的状态都是等待态，等异步有了结果，数组里的单个 promise 才会改变状态。
 
 而 `Promise.all(entry.map(handler => handler(payload)))` 返回一个 promise 实例，map 返回的数组里所有 promise 都成功或数组里不包含 promise 时，这个 promise 才会成功，如果其中有一个失败了，则该 promise 失败。
 
@@ -1112,7 +1109,7 @@ Promise.all 返回的 promise 实例赋给 result，起初是 pending 状态，�
 
 如果 action type 的 handler 只有一个，则执行它，传入 payload，返回值赋给 result。
 
-经过注册后的 action handler 被包裹成一个必定返回 promise 的函数，所以 entry[0](payload) 必返回 promise 实例。因此 result 必定是 promise 实例。
+经过注册后的 handler 是一个必返回 promise 的函数，所以 entry[0](payload) 必返回 promise 实例。因此 result 必定是 promise 实例。
 
 ```js
 return result.then(res => {
